@@ -27,7 +27,7 @@ class AppTest {
 
         val dataFromDb: Option[Map[String, String]] = db.get(table, id)
         assertFalse(dataFromDb.isEmpty)
-        mapEquals(data, dataFromDb.get)
+        mapEquals(data, dataFromDb.get, id)
 
         val del: Option[Long] = db.delete(table, id, List[String]())
         assertFalse(del.isEmpty)
@@ -35,15 +35,15 @@ class AppTest {
 
         val dataFromDbDeleted: Option[Map[String, String]] = db.get(table, id)
         assertFalse(dataFromDbDeleted.isEmpty)
-        mapEquals(Map[String, String](), dataFromDbDeleted.get)
+        mapEquals(Map[String, String](), dataFromDbDeleted.get, "")
     }
 
-    def mapEquals(m1: Map[String, String], m2: Map[String, String]): Unit = {
+    def mapEquals(m1: Map[String, String], m2: Map[String, String], id: String): Unit = {
         assertTrue(m1.size == m2.size)
-
         for ((k1, v1) <- m1) {
-            assertTrue(m2.contains(k1))
-            val v2: String = m2(k1)
+            val key: String = k1 + ":" + id
+            assertTrue(m2.contains(key))
+            val v2: String = m2(key)
             assertEquals(v1, v2)
         }
     }
