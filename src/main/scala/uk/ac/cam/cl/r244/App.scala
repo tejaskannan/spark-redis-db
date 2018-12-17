@@ -14,20 +14,23 @@ object App {
     val db = new RedisDatabase("localhost", 6379)
 
     val table = "nfl"
-    val id = "15"
-    val data = Map(("firstName" -> "Patrick"), ("lastName" -> "Mahomes"))
+    val id0 = "15"
+    val data0 = Map(("firstName" -> "Patrick"), ("lastName" -> "Mahomes"))
+    db.write(table, id0, data0)
 
-    db.write(table, id, data)
-    val dataFromDb: Option[Map[String, String]] = db.get(table, id)
-    if (!dataFromDb.isEmpty) {
-        println(dataFromDb)
-    }
+    val id1 = "10"
+    val data1 = Map(("firstName" -> "DeAndre"), ("lastName" -> "Hopkins"))
+    db.write(table, id1, data1)
 
-    val toDelete: List[String] = List("firstName")
-    println(db.delete(table, id, List[String]()))
-    val dataFromDbDeleted: Option[Map[String, String]] = db.get(table, id)
-    println(dataFromDbDeleted)
+    println(db.countWithPrefix(table, "firstName", "D"))
 
+    val t0 = System.nanoTime()
+    println(db.countWithPrefix(table, "firstName", "Pat"))
+    val elapsed = (System.nanoTime() - t0) / 1000000.0
+    println("Time to Create RDD: " + elapsed.toString + "ms")
+
+    println(db.countWithSuffix(table, "lastName", "ns"))
+    println(db.countWithRegex(table, "firstName", "P*tri+"))
   }
 
 }
