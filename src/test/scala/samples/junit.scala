@@ -25,25 +25,24 @@ class AppTest {
         val write: Boolean = db.write(table, id, data)
         assertTrue(write)
 
-        val dataFromDb: Option[Map[String, String]] = db.get(table, id)
+        val dataFromDb: Map[String, String] = db.get(table, id)
         assertFalse(dataFromDb.isEmpty)
-        mapEquals(data, dataFromDb.get, id)
+        mapEquals(data, dataFromDb, id)
 
         val del: Option[Long] = db.delete(table, id, List[String]())
         assertFalse(del.isEmpty)
         assertEquals(1, del.get)
 
-        val dataFromDbDeleted: Option[Map[String, String]] = db.get(table, id)
-        assertFalse(dataFromDbDeleted.isEmpty)
-        mapEquals(Map[String, String](), dataFromDbDeleted.get, "")
+        val dataFromDbDeleted: Map[String, String] = db.get(table, id)
+        assertTrue(dataFromDbDeleted.isEmpty)
+        mapEquals(Map[String, String](), dataFromDbDeleted, "")
     }
 
     def mapEquals(m1: Map[String, String], m2: Map[String, String], id: String): Unit = {
         assertTrue(m1.size == m2.size)
         for ((k1, v1) <- m1) {
-            val key: String = k1 + ":" + id
-            assertTrue(m2.contains(key))
-            val v2: String = m2(key)
+            assertTrue(m2.contains(k1))
+            val v2: String = m2(k1)
             assertEquals(v1, v2)
         }
     }

@@ -30,8 +30,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def write(table: String, id: String, data: Map[String, String]): Boolean = {
         val key: String = createKey(table, id)
-        val modifiedData: Map[String, String] = data.map(entry => (keyFormat.format(entry._1, id), entry._2))
-        if (key == null || key.isEmpty) false else redisClient.hmset(key, modifiedData)
+        key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
 
     def delete(table: String, id: String, fields: List[String]): Option[Long] = {
@@ -43,9 +42,9 @@ class RedisDatabase(_host: String, _port: Int) {
         }
     }
 
-    def get(table: String, id: String): Option[Map[String, String]] = {
+    def get(table: String, id: String): Map[String, String] = {
         val key: String = createKey(table, id)
-        redisClient.hgetall[String, String](key)
+        sanitizeData(redisClient.hgetall[String, String](key).get)
     }
 
     def countWithPrefix(table: String, field: String, prefix: String): Long = {
@@ -61,15 +60,15 @@ class RedisDatabase(_host: String, _port: Int) {
         countWith(table, field, str => r.findFirstIn(str) != None)
     }
 
-    def getWithPrefix(table: String, field: String, prefix: String): List[Any] = {
+    def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
         getWith(table, field, str => str.startsWith(prefix))
     }
 
-    def getWithSuffix(table: String, field: String, suffix: String): List[Any] = {
+    def getWithSuffix(table: String, field: String, suffix: String): List[Map[String, String]] = {
         getWith(table, field, str => str.endsWith(suffix))
     }
 
-    def getWithRegex(table: String, field: String, regex: String): List[Any] = {
+    def getWithRegex(table: String, field: String, regex: String): List[Map[String, String]] = {
         val r: Regex = regex.r
         getWith(table, field, str => r.findFirstIn(str) != None)
     }
@@ -80,7 +79,7 @@ class RedisDatabase(_host: String, _port: Int) {
         hashRDD.filter(entry => entry._1.startsWith(fieldPrefix)).filter(entry => filter(entry._2)).count()
     }
 
-    private def getWith(table: String, field: String, filter: String => Boolean): List[Any] = {
+    private def getWith(table: String, field: String, filter: String => Boolean): List[Map[String, String]] = {
         val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
         val fieldPrefix: String = keyFormat.format(field, "")
@@ -96,6 +95,16 @@ class RedisDatabase(_host: String, _port: Int) {
 
         val queryExec = redisClient.pipelineNoMulti(queries)
         queryExec.map(a => Await.result(a.future, timeout))
+                 .map(_.asInstanceOf[Option[Map[String, String]]])
+                 .map(m => sanitizeData(m.get))
+    }
+
+    private def prepareData(data: Map[String, String], id: String): Map[String, String] = {
+        data.map(entry => (keyFormat.format(entry._1, id), entry._2))
+    }
+
+    private def sanitizeData(data: Map[String, String]): Map[String, String] = {
+        data.map(entry => (entry._1.split(":")(0), entry._2))
     }
 
     private def createKey(table: String, id: String): String = {
