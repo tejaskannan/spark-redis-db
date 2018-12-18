@@ -16,6 +16,8 @@ class RedisDatabase(_host: String, _port: Int) {
     val port: Int = _port
 
     val redisClient = new RedisClient(host, port)
+    val cache = new RDDCache(16)
+
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
     private val t: Int = 1000
@@ -48,16 +50,18 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def countWithPrefix(table: String, field: String, prefix: String): Long = {
-        countWith(table, field, str => str.startsWith(prefix))
+        val cacheFilter: String => Boolean = str => str(0) == prefix(0)
+        countWith(table, field, str => str.startsWith(prefix), cacheFilter, "prefix:" + prefix(0).toString)
     }
 
     def countWithSuffix(table: String, field: String, suffix: String): Long = {
-        countWith(table, field, str => str.endsWith(suffix))
+        val cacheFilter: String => Boolean = str => str(str.length - 1) == suffix(suffix.length - 1)
+        countWith(table, field, str => str.endsWith(suffix), cacheFilter, "suffix:" + suffix(suffix.length - 1).toString)
     }
 
     def countWithRegex(table: String, field: String, regex: String): Long = {
         val r: Regex = regex.r
-        countWith(table, field, str => r.findFirstIn(str) != None)
+        countWith(table, field, str => r.findFirstIn(str) != None, str => true, "regex")
     }
 
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
@@ -73,10 +77,19 @@ class RedisDatabase(_host: String, _port: Int) {
         getWith(table, field, str => r.findFirstIn(str) != None)
     }
 
-    private def countWith(table: String, field: String, filter: String => Boolean): Long = {
-        val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
-        val fieldPrefix: String = keyFormat.format(field, "")
-        hashRDD.filter(entry => entry._1.startsWith(fieldPrefix)).filter(entry => filter(entry._2)).count()
+    private def countWith(table: String, field: String, filter: String => Boolean,
+                          cacheFilter: String => Boolean, cacheName: String): Long = {
+        val fullCacheName = table + ":" + field + ":" + cacheName
+        if (!cache.contains(fullCacheName)) {
+            val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
+            val fieldPrefix: String = keyFormat.format(field, "")
+            val cacheRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                              .filter(entry => cacheFilter(entry._2))
+            cache.add(fullCacheName, cacheRDD)
+            cacheRDD.filter(entry => filter(entry._2)).count()
+        } else {
+            cache.get(fullCacheName).get.filter(entry => filter(entry._2)).count()
+        }
     }
 
     private def getWith(table: String, field: String, filter: String => Boolean): List[Map[String, String]] = {
