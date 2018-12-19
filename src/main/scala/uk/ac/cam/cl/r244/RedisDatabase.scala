@@ -103,7 +103,7 @@ class RedisDatabase(_host: String, _port: Int) {
             Future {
                 spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
                                               fullCacheName)
-                cacheManager.add(fullCacheName)
+                cacheManager.add(fullCacheName, deleteTable)
             }
 
             cacheRDD.filter(entry => filter(entry._2)).count()
@@ -134,7 +134,7 @@ class RedisDatabase(_host: String, _port: Int) {
             Future {
                 spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
                                               fullCacheName)
-                cacheManager.add(fullCacheName)
+                cacheManager.add(fullCacheName, deleteTable)
             }
 
             ids = cacheRDD.filter(entry => filter(entry._2))
@@ -175,4 +175,5 @@ class RedisDatabase(_host: String, _port: Int) {
     private def createCacheName(table: String, field: String, name: String): String = {
         cacheNameFormat.format(table, field, name)
     }
+
 }

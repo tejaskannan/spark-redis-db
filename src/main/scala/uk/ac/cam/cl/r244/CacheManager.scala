@@ -15,7 +15,7 @@ class CacheManager(_sizeLimit: Int) {
         cache.containsKey(key)
     }
 
-    def add(key: String): Unit = {
+    def add(key: String, replaceFunc: String => Unit): Unit = {
         if (cache.size == sizeLimit) {
             // Remove the entry with the minimum score
             var minKey = ""
@@ -28,8 +28,7 @@ class CacheManager(_sizeLimit: Int) {
             }
 
             cache.remove(minKey)
-
-            // TODO: Also need to drop the Redis Set
+            replaceFunc(minKey) // This should drop the redis set
         }
 
         // For now, everything is given a score of zero. This will change with
