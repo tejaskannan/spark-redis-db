@@ -94,6 +94,9 @@ class RedisDatabase(_host: String, _port: Int) {
                           cacheFilter: String => Boolean, cacheName: String): Long = {
         val fullCacheName: String = createCacheName(table, field, cacheName)
         val fieldPrefix: String = keyFormat.format(field, "")
+
+        // OPTIMIZATION: If the prefix/suffix is a single letter, don't even
+        // use spark and just get the count of all redis indices in the cache
         if (!cacheManager.contains(fullCacheName)) {
             val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
 

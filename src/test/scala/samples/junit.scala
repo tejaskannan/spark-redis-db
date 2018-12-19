@@ -60,7 +60,7 @@ class AppTest {
 
         val countPrefix1: Long = db.countWithPrefix(table, lastName, "Ma")
         assertEquals(2, countPrefix1)
-        
+
         val countPrefix2: Long = db.countWithPrefix(table, firstName, "A")
         assertEquals(0, countPrefix2)
 
@@ -92,7 +92,7 @@ class AppTest {
 
         val getPrefix1: List[Map[String, String]] = db.getWithPrefix(table, lastName, "Ma")
         listMapEquals(dataLst, getPrefix1)
-        
+
         val getPrefix2: List[Map[String, String]] = db.getWithPrefix(table, firstName, "An")
         assertEquals(0, getPrefix2.size)
 
@@ -116,7 +116,7 @@ class AppTest {
 
         val countSuffix1: Long = db.countWithSuffix(table, lastName, "s")
         assertEquals(2, countSuffix1)
-        
+
         val countSuffix2: Long = db.countWithSuffix(table, firstName, "are")
         assertEquals(0, countSuffix2)
 
@@ -143,7 +143,7 @@ class AppTest {
 
         val getSuffix1: List[Map[String, String]] = db.getWithSuffix(table, lastName, "s")
         listMapEquals(dataLst, getSuffix1)
-        
+
         val getSuffix2: List[Map[String, String]] = db.getWithSuffix(table, firstName, "ack")
         assertEquals(0, getSuffix2.size)
 
@@ -167,7 +167,7 @@ class AppTest {
 
         val countRegex1: Long = db.countWithRegex(table, firstName, "Ste.*n")
         assertEquals(2, countRegex1)
-        
+
         val countRegex2: Long = db.countWithRegex(table, firstName, "are")
         assertEquals(0, countRegex2)
 
@@ -194,7 +194,7 @@ class AppTest {
 
         val getRegex1: List[Map[String, String]] = db.getWithRegex(table, firstName, "Ste.*n")
         listMapEquals(dataLst, getRegex1)
-        
+
         val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, "are")
         assertEquals(0, getRegex2.size)
 
