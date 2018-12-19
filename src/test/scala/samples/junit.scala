@@ -85,6 +85,11 @@ class AppTest {
         assertEquals(1, getPrefix0.size)
         mapEquals(data1, getPrefix0(0))
 
+        // Test the caching
+        Thread.sleep(1000)
+        val getPrefixCache: List[Map[String, String]] = db.getWithPrefix(table, firstName, "P")
+        listMapEquals(dataLst, getPrefixCache)
+
         val getPrefix1: List[Map[String, String]] = db.getWithPrefix(table, lastName, "Ma")
         listMapEquals(dataLst, getPrefix1)
         

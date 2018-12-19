@@ -18,12 +18,14 @@ object App {
     db.countWithPrefix(table, "firstName", "ab")
 
     val t0 = System.nanoTime()
-    println(db.countWithPrefix(table, "firstName", "p"))
+    println(db.countWithPrefix(table, "firstName", "ab"))
     val elapsed0 = (System.nanoTime() - t0) / 1000000.0
     println("Time to Exec Query: " + elapsed0.toString + "ms")
 
+    Thread.sleep(1000)
+
     val t1 = System.nanoTime()
-    println(db.countWithPrefix(table, "firstName", "p"))
+    println(db.getWithPrefix(table, "firstName", "ab").size)
     val elapsed1 = (System.nanoTime() - t1) / 1000000.0
     println("Time to Exec Query: " + elapsed1.toString + "ms")
   }

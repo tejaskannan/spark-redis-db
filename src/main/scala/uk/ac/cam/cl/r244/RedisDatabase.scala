@@ -8,8 +8,9 @@ import com.redis.RedisClient
 import scala.collection.immutable.{Map, List}
 import org.apache.spark.{sql, SparkConf, SparkContext}, sql.SparkSession
 import com.redislabs.provider.redis._
-import scala.util.matching.Regex
-import scala.concurrent.{Future, Promise, Await, duration, future}, duration.Duration
+import scala.util.{Success, Failure, matching}, matching.Regex
+import scala.concurrent.{Future, Promise, Await, duration}, duration.Duration
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class RedisDatabase(_host: String, _port: Int) {
     val host: String = _host
@@ -21,8 +22,13 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
+    private val cacheNameFormat: String = "%s:%s:%s"
     private val t: Int = 1000
     private val timeout: Duration = Duration(t, "millis")
+
+    // We use separate threads to write to caches
+    //private val poolSize: Int = 4
+    //private val pool: ExecutorService = Executors.newFixedThreadPool(poolSize)
 
     val sparkConf = new SparkConf().setMaster("local")
             .setAppName("spark-redis-db")
@@ -70,21 +76,23 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
-        getWith(table, field, str => str.startsWith(prefix))
+        val cacheFilter: String => Boolean = str => str(0) == prefix(0)
+        getWith(table, field, str => str.startsWith(prefix), cacheFilter, "prefix:" + prefix(0).toString)
     }
 
     def getWithSuffix(table: String, field: String, suffix: String): List[Map[String, String]] = {
-        getWith(table, field, str => str.endsWith(suffix))
+        val cacheFilter: String => Boolean = str => str(str.length - 1) == suffix(suffix.length - 1)
+        getWith(table, field, str => str.endsWith(suffix), cacheFilter, "suffix:" + suffix(suffix.length - 1).toString)
     }
 
     def getWithRegex(table: String, field: String, regex: String): List[Map[String, String]] = {
         val r: Regex = regex.r
-        getWith(table, field, str => r.findFirstIn(str) != None)
+        getWith(table, field, str => r.findFirstIn(str) != None, str => true, "regex")
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
                           cacheFilter: String => Boolean, cacheName: String): Long = {
-        val fullCacheName = table + ":" + field + ":" + cacheName
+        val fullCacheName: String = createCacheName(table, field, cacheName)
         val fieldPrefix: String = keyFormat.format(field, "")
         if (!cacheManager.contains(fullCacheName)) {
             val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
@@ -93,9 +101,11 @@ class RedisDatabase(_host: String, _port: Int) {
                                   .filter(entry => cacheFilter(entry._2))
 
             // Add indices to the cache. TODO: Make this writing asynchronous
-            spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
-                                          fullCacheName)
-            cacheManager.add(fullCacheName)
+            Future {
+                spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
+                                              fullCacheName)
+                cacheManager.add(fullCacheName)
+            }
 
             cacheRDD.filter(entry => filter(entry._2)).count()
         } else {
@@ -109,16 +119,38 @@ class RedisDatabase(_host: String, _port: Int) {
         }
     }
 
-    private def getWith(table: String, field: String, filter: String => Boolean): List[Map[String, String]] = {
-        val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
-
+    private def getWith(table: String, field: String, filter: String => Boolean,
+                        cacheFilter: String => Boolean, cacheName: String): List[Map[String, String]] = {
+        val fullCacheName: String = createCacheName(table, field, cacheName)
         val fieldPrefix: String = keyFormat.format(field, "")
+        var ids: List[String] = List()
         val valueIndex: Int = 1
 
-        val ids: List[String] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                                       .filter(entry => filter(entry._2))
-                                       .map(entry => entry._1.split(":")(valueIndex))
-                                       .collect().toList
+        if (!cacheManager.contains(fullCacheName)) {
+            val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
+
+            val cacheRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                                  .filter(entry => cacheFilter(entry._2))
+
+            Future {
+                spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
+                                              fullCacheName)
+                cacheManager.add(fullCacheName)
+            }
+
+            ids = cacheRDD.filter(entry => filter(entry._2))
+                          .map(entry => entry._1.split(":")(valueIndex))
+                          .collect().toList
+        } else {
+            val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
+                                                    .map(x => table + ":" + x.get)
+                                                    .toArray
+            val hashRDD = spark.sparkContext.fromRedisHash(indices)
+            ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                         .filter(entry => filter(entry._2))
+                         .map(entry => entry._1.split(":")(valueIndex))
+                         .collect().toList
+        }
 
         val queries = ids.map(id => keyFormat.format(table, id))
                          .map(key => (() => redisClient.hgetall[String, String](key)))
@@ -139,5 +171,9 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def createKey(table: String, id: String): String = {
         keyFormat.format(table, id)
+    }
+
+    private def createCacheName(table: String, field: String, name: String): String = {
+        cacheNameFormat.format(table, field, name)
     }
 }
