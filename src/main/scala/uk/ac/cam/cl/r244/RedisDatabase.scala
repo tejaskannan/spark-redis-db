@@ -9,7 +9,7 @@ import scala.collection.immutable.{Map, List}
 import org.apache.spark.{sql, SparkConf, SparkContext}, sql.SparkSession
 import com.redislabs.provider.redis._
 import scala.util.matching.Regex
-import scala.concurrent.{Future, Promise, Await, duration}, duration.Duration
+import scala.concurrent.{Future, Promise, Await, duration, future}, duration.Duration
 
 class RedisDatabase(_host: String, _port: Int) {
     val host: String = _host
@@ -17,6 +17,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     val redisClient = new RedisClient(host, port)
     val cache = new RDDCache(16)
+    val cacheManager = new CacheManager(16)
 
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
@@ -42,6 +43,10 @@ class RedisDatabase(_host: String, _port: Int) {
         } else {
             redisClient.del(key)
         }
+    }
+
+    def deleteAll(): Unit = {
+        redisClient.flushdb
     }
 
     def get(table: String, id: String): Map[String, String] = {
@@ -80,15 +85,27 @@ class RedisDatabase(_host: String, _port: Int) {
     private def countWith(table: String, field: String, filter: String => Boolean,
                           cacheFilter: String => Boolean, cacheName: String): Long = {
         val fullCacheName = table + ":" + field + ":" + cacheName
-        if (!cache.contains(fullCacheName)) {
+        val fieldPrefix: String = keyFormat.format(field, "")
+        if (!cacheManager.contains(fullCacheName)) {
             val hashRDD = spark.sparkContext.fromRedisHash(tableQueryFormat.format(table))
-            val fieldPrefix: String = keyFormat.format(field, "")
+
             val cacheRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                              .filter(entry => cacheFilter(entry._2))
-            cache.add(fullCacheName, cacheRDD)
+                                  .filter(entry => cacheFilter(entry._2))
+
+            // Add indices to the cache. TODO: Make this writing asynchronous
+            spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
+                                          fullCacheName)
+            cacheManager.add(fullCacheName)
+
             cacheRDD.filter(entry => filter(entry._2)).count()
         } else {
-            cache.get(fullCacheName).get.filter(entry => filter(entry._2)).count()
+            // We fetch the indices into memory as the set of indices is small
+            val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
+                                                    .map(x => table + ":" + x.get)
+                                                    .toArray
+            val hashRDD = spark.sparkContext.fromRedisHash(indices)
+            hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                   .filter(entry => filter(entry._2)).count()
         }
     }
 

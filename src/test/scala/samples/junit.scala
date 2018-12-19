@@ -39,6 +39,8 @@ class AppTest {
         val dataFromDbDeleted: Map[String, String] = db.get(table, id)
         assertTrue(dataFromDbDeleted.isEmpty)
         mapEquals(Map[String, String](), dataFromDbDeleted)
+
+        db.deleteAll()
     }
 
     @Test
@@ -62,8 +64,7 @@ class AppTest {
         val countPrefix2: Long = db.countWithPrefix(table, firstName, "A")
         assertEquals(0, countPrefix2)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
+        db.deleteAll()
     }
 
     @Test
@@ -90,8 +91,7 @@ class AppTest {
         val getPrefix2: List[Map[String, String]] = db.getWithPrefix(table, firstName, "An")
         assertEquals(0, getPrefix2.size)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
+        db.deleteAll()
     }
 
     @Test
@@ -115,8 +115,7 @@ class AppTest {
         val countSuffix2: Long = db.countWithSuffix(table, firstName, "are")
         assertEquals(0, countSuffix2)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
+        db.deleteAll()
     }
 
     @Test
@@ -143,8 +142,7 @@ class AppTest {
         val getSuffix2: List[Map[String, String]] = db.getWithSuffix(table, firstName, "ack")
         assertEquals(0, getSuffix2.size)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
+        db.deleteAll()
     }
 
     @Test
@@ -168,8 +166,7 @@ class AppTest {
         val countRegex2: Long = db.countWithRegex(table, firstName, "are")
         assertEquals(0, countRegex2)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
+        db.deleteAll()
     }
 
     @Test
@@ -196,8 +193,7 @@ class AppTest {
         val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, "are")
         assertEquals(0, getRegex2.size)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
+        db.deleteAll()
     }
 
     def listMapEquals(m1: List[Map[String, String]], m2: List[Map[String, String]]): Unit = {

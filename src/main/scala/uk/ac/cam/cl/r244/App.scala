@@ -15,12 +15,17 @@ object App {
 
     val table = "nflp"
 
-    println(db.countWithPrefix(table, "firstName", "Patr"))
+    db.countWithPrefix(table, "firstName", "ab")
 
     val t0 = System.nanoTime()
-    println(db.countWithPrefix(table, "firstName", "Ph"))
-    val elapsed = (System.nanoTime() - t0) / 1000000.0
-    println("Time to Exec Query: " + elapsed.toString + "ms")
+    println(db.countWithPrefix(table, "firstName", "p"))
+    val elapsed0 = (System.nanoTime() - t0) / 1000000.0
+    println("Time to Exec Query: " + elapsed0.toString + "ms")
+
+    val t1 = System.nanoTime()
+    println(db.countWithPrefix(table, "firstName", "p"))
+    val elapsed1 = (System.nanoTime() - t1) / 1000000.0
+    println("Time to Exec Query: " + elapsed1.toString + "ms")
   }
 
 }
