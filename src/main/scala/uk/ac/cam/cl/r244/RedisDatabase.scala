@@ -5,7 +5,7 @@ package uk.ac.cam.cl.r244
  */
 
 import com.redis.RedisClient
-import scala.collection.immutable.{Map, List}
+import scala.collection.immutable.{Map, List, Set}
 import org.apache.spark.{sql, SparkConf, SparkContext}, sql.SparkSession
 import com.redislabs.provider.redis._
 import scala.util.{Success, Failure, matching}, matching.Regex
@@ -17,7 +17,6 @@ class RedisDatabase(_host: String, _port: Int) {
     val port: Int = _port
 
     val redisClient = new RedisClient(host, port)
-    val cache = new RDDCache(16)
     val cacheManager = new CacheManager(16)
 
     private val keyFormat: String = "%s:%s"
@@ -25,10 +24,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val cacheNameFormat: String = "%s:%s:%s"
     private val t: Int = 1000
     private val timeout: Duration = Duration(t, "millis")
-
-    // We use separate threads to write to caches
-    //private val poolSize: Int = 4
-    //private val pool: ExecutorService = Executors.newFixedThreadPool(poolSize)
+    private val setRemoveThreshold: Int = 100
 
     val sparkConf = new SparkConf().setMaster("local")
             .setAppName("spark-redis-db")
@@ -51,8 +47,8 @@ class RedisDatabase(_host: String, _port: Int) {
         }
     }
 
-    def deleteAll(): Unit = {
-        redisClient.flushdb
+    def deleteTable(tableName: String): Long = {
+        redisClient.del(tableName).get
     }
 
     def get(table: String, id: String): Map[String, String] = {
@@ -87,7 +83,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def getWithRegex(table: String, field: String, regex: String): List[Map[String, String]] = {
         val r: Regex = regex.r
-        getWith(table, field, str => r.findFirstIn(str) != None, str => true, "regex")
+        getWith(table, field, str => r.findFirstIn(str) != None, str => true, "regex:")
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
