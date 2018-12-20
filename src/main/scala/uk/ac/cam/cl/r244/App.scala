@@ -20,15 +20,17 @@ object App {
     val elapsed0 = (System.nanoTime() - t0) / 1000000.0
     println("Time to Exec Query: " + elapsed0.toString + "ms")
 
-    Thread.sleep(3000)
+    Thread.sleep(1000)
 
     val t1 = System.nanoTime()
     println(db.getWithRegex(table, "firstName", "^.*e.*a.*$").size)
     val elapsed1 = (System.nanoTime() - t1) / 1000000.0
     println("Time to Exec Query: " + elapsed1.toString + "ms")
 
+    Thread.sleep(1000)
+
     val t2 = System.nanoTime()
-    println(db.getWithRegex(table, "firstName", "^.*e.*z.*$").size)
+    println(db.countWithRegex(table, "firstName", "^.*e.*$"))
     val elapsed2 = (System.nanoTime() - t2) / 1000000.0
     println("Time to Exec Query: " + elapsed2.toString + "ms")
   }
