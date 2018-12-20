@@ -14,7 +14,7 @@ class AppTest {
     val cacheFormat = "%s:%s:%s:%s"
     val prefix = "prefix"
     val suffix = "suffix"
-    val regex = "regex"
+    val contains = "contains"
 
     var statsManager = new StatisticsManager()
 
@@ -182,19 +182,19 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val countRegex0: Long = db.countWithRegex(table, lastName, "d.*s")
+        val countRegex0: Long = db.countWithRegex(table, lastName, ".*d.*s.*")
         assertEquals(1, countRegex0)
 
-        val countRegex1: Long = db.countWithRegex(table, firstName, "ste.*n")
+        val countRegex1: Long = db.countWithRegex(table, firstName, ".*ste.*n.*")
         assertEquals(2, countRegex1)
 
-        val countRegex2: Long = db.countWithRegex(table, firstName, "are")
+        val countRegex2: Long = db.countWithRegex(table, firstName, ".*are.*")
         assertEquals(0, countRegex2)
 
         db.delete(table, id0, List[String]())
         db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, lastName, regex, ""))
-        db.deleteTable(cacheFormat.format(table, firstName, regex, ""))
+        db.deleteTable(cacheFormat.format(table, lastName, contains, "s"))
+        db.deleteTable(cacheFormat.format(table, firstName, contains, "e"))
     }
 
     @Test
@@ -211,20 +211,20 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
 
-        val getRegex0: List[Map[String, String]] = db.getWithRegex(table, lastName, "d.*s")
+        val getRegex0: List[Map[String, String]] = db.getWithRegex(table, lastName, ".*d.*s.*")
         assertEquals(1, getRegex0.size)
         mapEquals(data0, getRegex0(0))
 
-        val getRegex1: List[Map[String, String]] = db.getWithRegex(table, firstName, "ste.*n")
+        val getRegex1: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*ste.*n.*")
         listMapEquals(dataLst, getRegex1)
 
-        val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, "are")
+        val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*are.*")
         assertEquals(0, getRegex2.size)
 
         db.delete(table, id0, List[String]())
         db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, lastName, regex, ""))
-        db.deleteTable(cacheFormat.format(table, firstName, regex, ""))
+        db.deleteTable(cacheFormat.format(table, lastName, contains, "s"))
+        db.deleteTable(cacheFormat.format(table, firstName, contains, "e"))
     }
 
     @Test

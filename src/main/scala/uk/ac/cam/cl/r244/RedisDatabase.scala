@@ -78,7 +78,8 @@ class RedisDatabase(_host: String, _port: Int) {
     def countWithRegex(table: String, field: String, regex: String): Long = {
         val r: Regex = regex.r
         val cacheId: String = findRegexCacheName(regex)
-        countWith(table, field, str => r.findFirstIn(str) != None, str => true, cacheId)
+        val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
+        countWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(maxChar), cacheId)
     }
 
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
@@ -96,7 +97,8 @@ class RedisDatabase(_host: String, _port: Int) {
     def getWithRegex(table: String, field: String, regex: String): List[Map[String, String]] = {
         val r: Regex = regex.r
         val cacheId: String = findRegexCacheName(regex)
-        getWith(table, field, str => r.findFirstIn(str) != None, str => true, cacheId)
+        val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
+        getWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(maxChar), cacheId)
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -112,7 +114,7 @@ class RedisDatabase(_host: String, _port: Int) {
             val cacheRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
                                   .filter(entry => cacheFilter(entry._2))
 
-            // Add indices to the cache. TODO: Make this writing asynchronous
+            // Add indices to the cache asychronously
             Future {
                 spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
                                               fullCacheName)
@@ -144,6 +146,7 @@ class RedisDatabase(_host: String, _port: Int) {
             val cacheRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
                                   .filter(entry => cacheFilter(entry._2))
 
+            // Add indices to the cache asychronously
             Future {
                 spark.sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
                                               fullCacheName)
