@@ -6,6 +6,7 @@ package uk.ac.cam.cl.r244
 
 import com.redis.RedisClient
 import scala.collection.immutable.{Map, List, Set}
+import scala.collection.mutable.ListBuffer
 import org.apache.spark.{sql, SparkConf, SparkContext}, sql.SparkSession
 import com.redislabs.provider.redis._
 import scala.util.{Success, Failure, matching}, matching.Regex
@@ -31,6 +32,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val prefixName: String = "prefix"
     private val suffixName: String = "suffix"
     private val regexName: String = "contains"
+    private val queryTypes: List[String] = List(prefixName, suffixName, regexName)
 
     val sparkConf = new SparkConf().setMaster("local")
             .setAppName("spark-redis-db")
@@ -46,17 +48,14 @@ class RedisDatabase(_host: String, _port: Int) {
         key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
 
-    def delete(table: String, id: String, fields: List[String]): Option[Long] = {
+    def delete(table: String, id: String): Option[Long] = {
         val key: String = createKey(table, id)
-        if (!fields.isEmpty) {
-            redisClient.hdel(key, fields.head, fields.tail)
-        } else {
-            redisClient.del(key)
-        }
+        removeIdFromCaches(table, id)
+        redisClient.del(key)
     }
 
-    def deleteTable(tableName: String): Long = {
-        redisClient.del(tableName).get
+    def deleteCache(cacheName: String): Unit = {
+        redisClient.del(cacheName)
     }
 
     def get(table: String, id: String): Map[String, String] = {
@@ -118,7 +117,7 @@ class RedisDatabase(_host: String, _port: Int) {
             Future {
                 sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
                                               fullCacheName)
-                cacheManager.add(fullCacheName, deleteTable)
+                cacheManager.add(fullCacheName, deleteCache)
             }
 
             cacheRDD.filter(entry => filter(entry._2)).count()
@@ -156,7 +155,7 @@ class RedisDatabase(_host: String, _port: Int) {
             Future {
                 sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
                                               fullCacheName)
-                cacheManager.add(fullCacheName, deleteTable)
+                cacheManager.add(fullCacheName, deleteCache)
             }
 
             ids = cacheRDD.filter(entry => filter(entry._2))
@@ -179,6 +178,14 @@ class RedisDatabase(_host: String, _port: Int) {
         queryExec.map(a => Await.result(a.future, timeout))
                  .map(_.asInstanceOf[Option[Map[String, String]]])
                  .map(m => sanitizeData(m.get))
+    }
+
+    private def removeIdFromCaches(table: String, id: String): Unit = {
+        for (queryType <- queryTypes) {
+            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(table + queryType)
+            val queries = cacheNames.map(name => (() => redisClient.srem(name, id)))
+            redisClient.pipelineNoMulti(queries)
+        }
     }
 
     private def prepareData(data: Map[String, String], id: String): Map[String, String] = {

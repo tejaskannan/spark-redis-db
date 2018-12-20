@@ -15,6 +15,10 @@ class CacheManager(_sizeLimit: Int) {
         cache.containsKey(key)
     }
 
+    def getCacheNamesWithPrefix(prefix: String): List[String] = {
+        cache.keys.filter(name => name.startsWith(prefix)).toList
+    }
+
     def add(key: String, replaceFunc: String => Unit): Unit = {
         if (cache.size == sizeLimit) {
             // Remove the entry with the minimum score

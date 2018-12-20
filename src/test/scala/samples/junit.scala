@@ -37,7 +37,7 @@ class AppTest {
         assertFalse(dataFromDb.isEmpty)
         mapEquals(data, dataFromDb)
 
-        val del: Option[Long] = db.delete(table, id, List[String]())
+        val del: Option[Long] = db.delete(table, id)
         assertFalse(del.isEmpty)
         assertEquals(1, del.get)
 
@@ -45,7 +45,7 @@ class AppTest {
         assertTrue(dataFromDbDeleted.isEmpty)
         mapEquals(Map[String, String](), dataFromDbDeleted)
 
-        db.delete(table, id, List[String]())
+        db.delete(table, id)
     }
 
     @Test
@@ -69,11 +69,11 @@ class AppTest {
         val countPrefix2: Long = db.countWithPrefix(table, firstName, "a")
         assertEquals(0, countPrefix2)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, firstName, prefix, "p"))
-        db.deleteTable(cacheFormat.format(table, lastName, prefix, "m"))
-        db.deleteTable(cacheFormat.format(table, firstName, prefix, "a"))
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "p"))
+        db.deleteCache(cacheFormat.format(table, lastName, prefix, "m"))
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "a"))
     }
 
     @Test
@@ -105,11 +105,11 @@ class AppTest {
         val getPrefix2: List[Map[String, String]] = db.getWithPrefix(table, firstName, "an")
         assertEquals(0, getPrefix2.size)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, firstName, prefix, "p"))
-        db.deleteTable(cacheFormat.format(table, lastName, prefix, "m"))
-        db.deleteTable(cacheFormat.format(table, firstName, prefix, "a"))
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "p"))
+        db.deleteCache(cacheFormat.format(table, lastName, prefix, "m"))
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "a"))
     }
 
     @Test
@@ -133,11 +133,11 @@ class AppTest {
         val countSuffix2: Long = db.countWithSuffix(table, firstName, "are")
         assertEquals(0, countSuffix2)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, firstName, suffix, "k"))
-        db.deleteTable(cacheFormat.format(table, lastName, suffix, "s"))
-        db.deleteTable(cacheFormat.format(table, firstName, suffix, "e"))
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, suffix, "k"))
+        db.deleteCache(cacheFormat.format(table, lastName, suffix, "s"))
+        db.deleteCache(cacheFormat.format(table, firstName, suffix, "e"))
     }
 
     @Test
@@ -164,10 +164,10 @@ class AppTest {
         val getSuffix2: List[Map[String, String]] = db.getWithSuffix(table, firstName, "ack")
         assertEquals(0, getSuffix2.size)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, lastName, suffix, "s"))
-        db.deleteTable(cacheFormat.format(table, firstName, suffix, "k"))
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, lastName, suffix, "s"))
+        db.deleteCache(cacheFormat.format(table, firstName, suffix, "k"))
     }
 
     @Test
@@ -191,10 +191,10 @@ class AppTest {
         val countRegex2: Long = db.countWithRegex(table, firstName, ".*are.*")
         assertEquals(0, countRegex2)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, lastName, contains, "s"))
-        db.deleteTable(cacheFormat.format(table, firstName, contains, "e"))
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
     }
 
     @Test
@@ -221,10 +221,33 @@ class AppTest {
         val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*are.*")
         assertEquals(0, getRegex2.size)
 
-        db.delete(table, id0, List[String]())
-        db.delete(table, id1, List[String]())
-        db.deleteTable(cacheFormat.format(table, lastName, contains, "s"))
-        db.deleteTable(cacheFormat.format(table, firstName, contains, "e"))
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
+    }
+
+    @Test
+    def removeFromCache() {
+        val id0 = "14"
+        val data0 = Map((firstName -> "stefon"), (lastName -> "diggs"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "22"
+        val data1 = Map((firstName -> "stevan"), (lastName -> "ridley"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val cacheName = cacheFormat.format(table, lastName, contains, "s")
+
+        db.countWithPrefix(table, firstName, "st")
+        db.delete(table, id1)
+        Thread.sleep(100)
+        assertFalse(db.redisClient.sismember(cacheName, id1))
+
+        db.delete(table, id0)
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
     }
 
     @Test
