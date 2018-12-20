@@ -36,5 +36,7 @@ class CacheManager(_sizeLimit: Int) {
         cache.put(key, 0)
     }
 
+    // Edit Distance, Smith-Waterman, Ulam Distance
+
 }
 

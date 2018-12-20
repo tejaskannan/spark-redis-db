@@ -8,8 +8,6 @@ import scala.collection.immutable.{Map, List}
 
 object App {
 
-  def foo(x : Array[String]): String = x.foldLeft("")((a,b) => a + b)
-
   def main(args : Array[String]) {
     val db = new RedisDatabase("localhost", 6379)
 
@@ -18,16 +16,21 @@ object App {
     db.countWithPrefix(table, "firstName", "ab")
 
     val t0 = System.nanoTime()
-    println(db.countWithPrefix(table, "firstName", "ab"))
+    println(db.countWithPrefix(table, "firstName", "patr"))
     val elapsed0 = (System.nanoTime() - t0) / 1000000.0
     println("Time to Exec Query: " + elapsed0.toString + "ms")
 
-    Thread.sleep(1000)
+    Thread.sleep(3000)
 
     val t1 = System.nanoTime()
-    println(db.getWithPrefix(table, "firstName", "ab").size)
+    println(db.getWithRegex(table, "firstName", "^.*e.*a.*$").size)
     val elapsed1 = (System.nanoTime() - t1) / 1000000.0
     println("Time to Exec Query: " + elapsed1.toString + "ms")
+
+    val t2 = System.nanoTime()
+    println(db.getWithRegex(table, "firstName", "^.*e.*z.*$").size)
+    val elapsed2 = (System.nanoTime() - t2) / 1000000.0
+    println("Time to Exec Query: " + elapsed2.toString + "ms")
   }
 
 }

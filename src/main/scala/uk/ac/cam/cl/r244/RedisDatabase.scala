@@ -18,13 +18,19 @@ class RedisDatabase(_host: String, _port: Int) {
 
     val redisClient = new RedisClient(host, port)
     val cacheManager = new CacheManager(16)
+    val statsManager = new StatisticsManager()
 
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
+    private val cacheIdFormat: String = "%s:%s"
     private val cacheNameFormat: String = "%s:%s:%s"
     private val t: Int = 1000
     private val timeout: Duration = Duration(t, "millis")
     private val setRemoveThreshold: Int = 100
+
+    private val prefixName: String = "prefix"
+    private val suffixName: String = "suffix"
+    private val regexName: String = "contains"
 
     val sparkConf = new SparkConf().setMaster("local")
             .setAppName("spark-redis-db")
@@ -34,6 +40,7 @@ class RedisDatabase(_host: String, _port: Int) {
     val spark = SparkSession.builder.config(sparkConf).getOrCreate()
 
     def write(table: String, id: String, data: Map[String, String]): Boolean = {
+        // TODO: Add this index to relevant caches
         val key: String = createKey(table, id)
         key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
@@ -58,32 +65,38 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def countWithPrefix(table: String, field: String, prefix: String): Long = {
         val cacheFilter: String => Boolean = str => str(0) == prefix(0)
-        countWith(table, field, str => str.startsWith(prefix), cacheFilter, "prefix:" + prefix(0).toString)
+        val cacheId: String = cacheIdFormat.format(prefixName, prefix(0).toString)
+        countWith(table, field, str => str.startsWith(prefix), cacheFilter, cacheId)
     }
 
     def countWithSuffix(table: String, field: String, suffix: String): Long = {
         val cacheFilter: String => Boolean = str => str(str.length - 1) == suffix(suffix.length - 1)
-        countWith(table, field, str => str.endsWith(suffix), cacheFilter, "suffix:" + suffix(suffix.length - 1).toString)
+        val cacheId: String = cacheIdFormat.format(suffixName, suffix(suffix.length - 1).toString)
+        countWith(table, field, str => str.endsWith(suffix), cacheFilter, cacheId)
     }
 
     def countWithRegex(table: String, field: String, regex: String): Long = {
         val r: Regex = regex.r
-        countWith(table, field, str => r.findFirstIn(str) != None, str => true, "regex")
+        val cacheId: String = findRegexCacheName(regex)
+        countWith(table, field, str => r.findFirstIn(str) != None, str => true, cacheId)
     }
 
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
         val cacheFilter: String => Boolean = str => str(0) == prefix(0)
-        getWith(table, field, str => str.startsWith(prefix), cacheFilter, "prefix:" + prefix(0).toString)
+        val cacheId: String = cacheIdFormat.format(prefixName, prefix(0).toString)
+        getWith(table, field, str => str.startsWith(prefix), cacheFilter, cacheId)
     }
 
     def getWithSuffix(table: String, field: String, suffix: String): List[Map[String, String]] = {
         val cacheFilter: String => Boolean = str => str(str.length - 1) == suffix(suffix.length - 1)
-        getWith(table, field, str => str.endsWith(suffix), cacheFilter, "suffix:" + suffix(suffix.length - 1).toString)
+        val cacheId: String = cacheIdFormat.format(suffixName, suffix(suffix.length - 1).toString)
+        getWith(table, field, str => str.endsWith(suffix), cacheFilter, cacheId)
     }
 
     def getWithRegex(table: String, field: String, regex: String): List[Map[String, String]] = {
         val r: Regex = regex.r
-        getWith(table, field, str => r.findFirstIn(str) != None, str => true, "regex:")
+        val cacheId: String = findRegexCacheName(regex)
+        getWith(table, field, str => r.findFirstIn(str) != None, str => true, cacheId)
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -174,6 +187,22 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def createCacheName(table: String, field: String, name: String): String = {
         cacheNameFormat.format(table, field, name)
+    }
+
+    private def findRegexCacheName(regex: String): String = {
+        val len: Int = regex.length
+        if (Utils.isLetter(regex(0))) {
+            cacheIdFormat.format(prefixName, regex(0).toString)
+        } else if (regex(0) == '^' && Utils.isLetter(regex(1))) {
+            cacheIdFormat.format(prefixName, regex(1).toString)
+        } else if (Utils.isLetter(regex(len - 1))) {
+            cacheIdFormat.format(suffixName, regex(len - 1).toString)
+        } else if (regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
+            cacheIdFormat.format(suffixName, regex(len - 2).toString)
+        } else {
+            val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
+            cacheIdFormat.format(regexName, maxChar.toString)
+        }
     }
 
 }

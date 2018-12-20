@@ -2,7 +2,7 @@ package samples
 
 import org.junit.{Test, Before}
 import org.junit.Assert.{assertTrue, assertFalse, assertEquals}
-import uk.ac.cam.cl.r244.RedisDatabase
+import uk.ac.cam.cl.r244.{RedisDatabase, Utils, StatisticsManager}
 
 @Test
 class AppTest {
@@ -16,6 +16,7 @@ class AppTest {
     val suffix = "suffix"
     val regex = "regex"
 
+    var statsManager = new StatisticsManager()
 
     @Before
     def setup(): Unit = {
@@ -224,6 +225,31 @@ class AppTest {
         db.delete(table, id1, List[String]())
         db.deleteTable(cacheFormat.format(table, lastName, regex, ""))
         db.deleteTable(cacheFormat.format(table, firstName, regex, ""))
+    }
+
+    @Test
+    def editDistance() {
+        assertTrue(Utils.editDistance("kitten", "sitting", 3))
+        assertFalse(Utils.editDistance("kitten", "sitting", 2))
+        assertTrue(Utils.editDistance("book", "back", 2))
+        assertFalse(Utils.editDistance("book", "back", 1))
+    }
+
+    @Test
+    def maxFreqRegex() {
+        assertEquals('b', Utils.getMaxFreqLetter("^abc$", statsManager))
+        assertEquals('a', Utils.getMaxFreqLetter("ebai", statsManager))
+        assertEquals('i', Utils.getMaxFreqLetter("^biaze", statsManager))
+        assertEquals('i', Utils.getMaxFreqLetter("biaze$", statsManager))
+    }
+
+    @Test
+    def isLetter() {
+        assertTrue(Utils.isLetter('a'))
+        assertTrue(Utils.isLetter('z'))
+        assertFalse(Utils.isLetter('^'))
+        assertFalse(Utils.isLetter('.'))
+        assertFalse(Utils.isLetter('$'))
     }
 
     def listMapEquals(m1: List[Map[String, String]], m2: List[Map[String, String]]): Unit = {
