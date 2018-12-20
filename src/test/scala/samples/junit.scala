@@ -226,28 +226,81 @@ class AppTest {
         db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
         db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
     }
-
+    
     @Test
     def removeFromCache() {
-        val id0 = "14"
-        val data0 = Map((firstName -> "stefon"), (lastName -> "diggs"))
+        val id0 = "12"
+        val data0 = Map((firstName -> "tom"), (lastName -> "brady"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
-        val id1 = "22"
-        val data1 = Map((firstName -> "stevan"), (lastName -> "ridley"))
+        val id1 = "30"
+        val data1 = Map((firstName -> "todd"), (lastName -> "gurley"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val cacheName = cacheFormat.format(table, lastName, contains, "s")
 
-        db.countWithPrefix(table, firstName, "st")
+        assertEquals(db.countWithPrefix(table, firstName, "to"), 2)
+
+        Thread.sleep(1000)
+
+        val cacheName = cacheFormat.format(table, firstName, prefix, "t")
+
+        val isPresentBefore: Boolean = db.redisClient.sismember(cacheName, id1)
+        assertTrue(isPresentBefore)
+
         db.delete(table, id1)
-        Thread.sleep(100)
-        assertFalse(db.redisClient.sismember(cacheName, id1))
+        Thread.sleep(1000)
+
+        val isPresentAfter: Boolean = db.redisClient.sismember(cacheName, id1)
+        assertFalse(isPresentAfter)
 
         db.delete(table, id0)
-        db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
+        db.deleteCache(cacheName)
+    }
+
+    @Test
+    def addToCache() {
+        val college = "college"
+
+        val id0 = "1"
+        val data0 = Map((firstName -> "cam"), (lastName -> "newton"), (college -> "auburn"))
+        assertTrue(db.write(table, id0, data0))
+
+        assertEquals(1, db.countWithPrefix(table, firstName, "ca"))
+
+        Thread.sleep(1000)
+
+        val id1 = "6"
+        val data1 = Map((firstName -> "cody"), (lastName -> "kessler"), (college -> "usc"))
+        assertTrue(db.write(table, id1, data1))
+
+        val prefixCacheName = cacheFormat.format(table, firstName, prefix, "c")
+        val isPresent0: Boolean = db.redisClient.sismember(prefixCacheName, id1)
+        assertTrue(isPresent0)
+
+        assertEquals(1, db.countWithPrefix(table, college, "u"))
+
+        Thread.sleep(1000)
+
+        val id2 = "3"
+        val data2 = Map((firstName -> "josh"), (lastName -> "rosen"), (college -> "ucla"))
+        assertTrue(db.write(table, id2, data2))
+
+        val collegeCacheName = cacheFormat.format(table, college, prefix, "u")
+        val isPresent1: Boolean = db.redisClient.sismember(collegeCacheName, id2)
+        assertTrue(isPresent1)
+
+        assertTrue(db.write(table, id0, Map((college -> "uf"))))
+
+        val isPresent2: Boolean = db.redisClient.sismember(collegeCacheName, id0)
+        assertTrue(isPresent2)
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.delete(table, id2)        
+        db.deleteCache(prefixCacheName)
+        db.deleteCache(collegeCacheName)
     }
 
     @Test

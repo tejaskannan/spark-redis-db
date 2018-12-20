@@ -15,6 +15,13 @@ class CacheManager(_sizeLimit: Int) {
         cache.containsKey(key)
     }
 
+    def getCacheNamesWith(table: String, queryType: String): List[String] = {
+        cache.keys.filter(name => {
+            val tokens = name.split(":")
+            tokens(0) == table && tokens(2) == queryType
+        }).toList
+    }
+
     def getCacheNamesWithPrefix(prefix: String): List[String] = {
         cache.keys.filter(name => name.startsWith(prefix)).toList
     }

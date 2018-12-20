@@ -45,6 +45,10 @@ class RedisDatabase(_host: String, _port: Int) {
     def write(table: String, id: String, data: Map[String, String]): Boolean = {
         // TODO: Add this index to relevant caches
         val key: String = createKey(table, id)
+
+        val existingRecord: Map[String, String] = get(table, id)
+        updateCaches(table, id, existingRecord, data)
+
         key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
 
@@ -181,11 +185,47 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     private def removeIdFromCaches(table: String, id: String): Unit = {
-        for (queryType <- queryTypes) {
-            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(table + queryType)
-            val queries = cacheNames.map(name => (() => redisClient.srem(name, id)))
-            redisClient.pipelineNoMulti(queries)
+        val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(table)
+        cacheNames.foreach(name => redisClient.srem(name, id))
+    }
+
+    private def updateCaches(table: String, id: String, oldData: Map[String, String],
+                             newData: Map[String, String]): List[Long] = {
+        val fieldsToUpdate = newData.keys.toList
+        for (field <- fieldsToUpdate) {
+            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(table + ":" + field)
+            cacheNames.foreach(name => redisClient.srem(name, id))
         }
+
+        val prefixes = newData.map(e => (e._1, e._2(0)))
+                              .map(e => (cacheNameFormat.format(table, e._1, prefixName + ":" + e._2), e._2))
+                              .filter(e => cacheManager.contains(e._1))
+                              .keys.toList
+        val prefixAdds = prefixes.map(name => (() => redisClient.sadd(name, id)))
+
+        val suffixes = newData.map(e => (e._1, e._2(e._2.length - 1)))
+                              .map(e => (cacheNameFormat.format(table, e._1, suffixName + ":" + e._2), e._2))
+                              .filter(e => cacheManager.contains(e._1))
+                              .keys.toList
+        val suffixAdds = suffixes.map(name => (() => redisClient.sadd(name, id)))
+
+        val containsCaches = new ListBuffer[String]()
+        for (field <- fieldsToUpdate) {
+            val name: String = cacheNameFormat.format(table, field, regexName)
+            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
+            val fieldData: String = newData(field).substring(1, newData(field).length - 1)
+            for (cacheName <- cacheNames) {
+                if (fieldData.contains(cacheName(cacheName.length - 1))) {
+                    containsCaches += cacheName
+                }
+            }
+        }
+
+        val containsAdds = containsCaches.map(name => (() => redisClient.sadd(name, id)))
+        val addExec = redisClient.pipelineNoMulti(prefixAdds ++ suffixAdds ++ containsAdds)
+        addExec.map(a => Await.result(a.future, timeout * 5))
+               .map(_.asInstanceOf[Option[Long]])
+               .map(_.get)
     }
 
     private def prepareData(data: Map[String, String], id: String): Map[String, String] = {
