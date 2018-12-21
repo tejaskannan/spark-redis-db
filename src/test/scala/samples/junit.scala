@@ -15,6 +15,7 @@ class AppTest {
     val prefix = "prefix"
     val suffix = "suffix"
     val contains = "contains"
+    val editdist = "editdist"
 
     var statsManager = new StatisticsManager()
 
@@ -226,7 +227,124 @@ class AppTest {
         db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
         db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
     }
+
+    @Test
+    def sparkCountContains() {
+        val id0 = "28"
+        val data0 = Map((firstName -> "james"), (lastName -> "white"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "97"
+        val data1 = Map((firstName -> "cameron"), (lastName -> "heyward"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val countContains0: Long = db.countWithContains(table, firstName, "ame")
+        assertEquals(2, countContains0)
+
+        val countContains1: Long = db.countWithContains(table, lastName, "ite")
+        assertEquals(1, countContains1)
+
+        val countContains2: Long = db.countWithContains(table, firstName, "hez")
+        assertEquals(0, countContains2)
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "e"))
+    }
     
+    @Test
+    def sparkGetContains() {
+        val id0 = "28"
+        val data0 = Map((firstName -> "james"), (lastName -> "white"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "97"
+        val data1 = Map((firstName -> "cameron"), (lastName -> "heyward"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
+
+        val getContains0: List[Map[String, String]] = db.getWithContains(table, firstName, "ame")
+        listMapEquals(dataLst, getContains0)
+
+        val getContains1: List[Map[String, String]] = db.getWithContains(table, lastName, "ite")
+        assertEquals(1, getContains1.size)
+        mapEquals(data0, getContains1(0))
+
+        val getContains2: List[Map[String, String]] = db.getWithContains(table, firstName, "hez")
+        assertTrue(getContains2.isEmpty)
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "e"))
+    }
+
+    @Test
+    def sparkCountWithEditDistance() {
+        val id0 = "28"
+        val data0 = Map((firstName -> "tavon"), (lastName -> "austin"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "97"
+        val data1 = Map((firstName -> "taylor"), (lastName -> "gabriel"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val countContains0: Long = db.countWithEditDistance(table, firstName, "tavlor", 2)
+        assertEquals(2, countContains0)
+
+        val countContains1: Long = db.countWithEditDistance(table, firstName, "tavlor", 1)
+        assertEquals(1, countContains1)
+
+        val countContains2: Long = db.countWithEditDistance(table, lastName, "zen", 1)
+        assertEquals(0, countContains2)
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, editdist, "4:8"))
+        db.deleteCache(cacheFormat.format(table, firstName, editdist, "5:7"))
+        db.deleteCache(cacheFormat.format(table, lastName, editdist, "2:4"))
+    }
+
+    @Test
+    def sparkGetWithEditDistance() {
+        val id0 = "28"
+        val data0 = Map((firstName -> "tavon"), (lastName -> "austin"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "97"
+        val data1 = Map((firstName -> "taylor"), (lastName -> "gabriel"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
+
+        val getContains0: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 2)
+        listMapEquals(dataLst, getContains0)
+
+        val getContains1: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 1)
+        assertEquals(1, getContains1.size)
+        mapEquals(data1, getContains1(0))
+
+        val getContains2: List[Map[String, String]] = db.getWithEditDistance(table, lastName, "zen", 1)
+        assertTrue(getContains2.isEmpty)
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheFormat.format(table, firstName, editdist, "4:8"))
+        db.deleteCache(cacheFormat.format(table, firstName, editdist, "5:7"))
+        db.deleteCache(cacheFormat.format(table, lastName, editdist, "2:4"))
+    }
+
+
     @Test
     def removeFromCache() {
         val id0 = "12"
@@ -309,14 +427,16 @@ class AppTest {
         assertFalse(Utils.editDistance("kitten", "sitting", 2))
         assertTrue(Utils.editDistance("book", "back", 2))
         assertFalse(Utils.editDistance("book", "back", 1))
+        assertTrue(Utils.editDistance("tavon", "tavlor", 2))
+        assertFalse(Utils.editDistance("tavon", "tavlor", 1))
     }
 
     @Test
-    def maxFreqRegex() {
-        assertEquals('b', Utils.getMaxFreqLetter("^abc$", statsManager))
-        assertEquals('a', Utils.getMaxFreqLetter("ebai", statsManager))
-        assertEquals('i', Utils.getMaxFreqLetter("^biaze", statsManager))
-        assertEquals('i', Utils.getMaxFreqLetter("biaze$", statsManager))
+    def maxFreqLetter() {
+        assertEquals('a', Utils.getMaxFreqLetter("^abc$", statsManager))
+        assertEquals('e', Utils.getMaxFreqLetter("ebai", statsManager))
+        assertEquals('e', Utils.getMaxFreqLetter("^biaze", statsManager))
+        assertEquals('e', Utils.getMaxFreqLetter("biaze$", statsManager))
     }
 
     @Test

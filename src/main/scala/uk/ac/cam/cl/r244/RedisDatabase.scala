@@ -32,6 +32,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val prefixName: String = "prefix"
     private val suffixName: String = "suffix"
     private val regexName: String = "contains"
+    private val editDistName: String = "editdist"
     private val queryTypes: List[String] = List(prefixName, suffixName, regexName)
 
     val sparkConf = new SparkConf().setMaster("local")
@@ -43,7 +44,6 @@ class RedisDatabase(_host: String, _port: Int) {
     var sparkContext = spark.sparkContext
 
     def write(table: String, id: String, data: Map[String, String]): Boolean = {
-        // TODO: Add this index to relevant caches
         val key: String = createKey(table, id)
 
         val existingRecord: Map[String, String] = get(table, id)
@@ -87,6 +87,22 @@ class RedisDatabase(_host: String, _port: Int) {
         countWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(maxChar), cacheId, singleLetter)
     }
 
+    def countWithEditDistance(table: String, field: String, target: String, dist: Int): Long = {
+        val minLength: Int = target.length - dist
+        val maxLength: Int = target.length + dist
+        val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
+        val cacheFilter: String => Boolean = str => (target.length - dist <= str.length && str.length <= target.length + dist)
+        countWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter, cacheId, false)
+    }
+
+    def countWithContains(table: String, field: String, substring: String): Long = {
+        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager)
+        val cacheFilter: String => Boolean = str => str.contains(maxChar)
+        val filter: String => Boolean = str => str.contains(substring)
+        val cacheId: String = cacheIdFormat.format(regexName, maxChar)
+        countWith(table, field, filter, cacheFilter, cacheId, substring.length == 1)
+    }
+
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
         val cacheFilter: String => Boolean = str => str(0) == prefix(0)
         val cacheId: String = cacheIdFormat.format(prefixName, prefix(0).toString)
@@ -104,6 +120,22 @@ class RedisDatabase(_host: String, _port: Int) {
         val cacheId: String = findRegexCacheName(regex)
         val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
         getWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(maxChar), cacheId)
+    }
+
+    def getWithEditDistance(table: String, field: String, target: String, dist: Int): List[Map[String, String]] = {
+        val minLength: Int = target.length - dist
+        val maxLength: Int = target.length + dist
+        val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
+        val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
+        getWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter, cacheId)
+    }
+
+    def getWithContains(table: String, field: String, substring: String): List[Map[String, String]] = {
+        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager)
+        val cacheFilter: String => Boolean = str => str.contains(maxChar)
+        val filter: String => Boolean = str => str.contains(substring)
+        val cacheId: String = cacheIdFormat.format(regexName, maxChar)
+        getWith(table, field, filter, cacheFilter, cacheId)
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -133,7 +165,7 @@ class RedisDatabase(_host: String, _port: Int) {
             } else {
                 // We fetch the indices into memory as the set of indices is small
                 val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
-                                                        .map(x => table + ":" + x.get)
+                                                        .map(x => keyFormat.format(table, x.get))
                                                         .toArray
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
@@ -158,7 +190,7 @@ class RedisDatabase(_host: String, _port: Int) {
             // Add indices to the cache asychronously
             Future {
                 sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
-                                              fullCacheName)
+                                        fullCacheName)
                 cacheManager.add(fullCacheName, deleteCache)
             }
 
@@ -167,7 +199,7 @@ class RedisDatabase(_host: String, _port: Int) {
                           .collect().toList
         } else {
             val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
-                                                    .map(x => table + ":" + x.get)
+                                                    .map(x => keyFormat.format(table, x.get))
                                                     .toArray
             val hashRDD = sparkContext.fromRedisHash(indices)
             ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix) && filter(entry._2))

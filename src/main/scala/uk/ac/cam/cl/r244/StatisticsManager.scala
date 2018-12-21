@@ -20,11 +20,11 @@ class StatisticsManager {
                                                   0.2044, 0.0561, 0.0022, 0.0004, 0.0026, 0.0028,
                                                   0.0994, 0.0007)
 
-    private val middleFreq: Array[Double] = Array(0.089, 0.0187, 0.0423, 0.0262, 0.0971, 0.0103, 
-                                                  0.0216, 0.0296, 0.0973, 0.0011, 0.0083, 0.0605,
-                                                  0.0305, 0.0744, 0.0781, 0.0303, 0.0018, 0.0778,
-                                                  0.0506, 0.0695, 0.0431, 0.0118, 0.0065, 0.004,
-                                                  0.0138, 0.0055)
+    private val containsFreq: Array[Double] = Array(0.0795, 0.0214, 0.0465, 0.0362, 0.0915, 0.0127,
+                                                    0.0271, 0.03, 0.0817, 0.0019, 0.0092, 0.057, 
+                                                    0.0339, 0.0682, 0.067, 0.0357, 0.0021, 0.0719, 
+                                                    0.0668, 0.0661, 0.0414, 0.0115, 0.0077, 0.0038,
+                                                    0.0241, 0.0051)
 
 
 
@@ -36,8 +36,8 @@ class StatisticsManager {
         suffixFreq(charToIndex(c))
     }
 
-    def getMiddleFreq(c: Char): Double = {
-        middleFreq(charToIndex(c))
+    def getContainsFreq(c: Char): Double = {
+        containsFreq(charToIndex(c))
     }
 
     // Only works with lowercase letters for now

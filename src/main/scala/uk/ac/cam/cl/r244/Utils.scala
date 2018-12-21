@@ -6,16 +6,16 @@ object Utils {
 		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 	}
 
-	def getMaxFreqLetter(regex: String, stats: StatisticsManager): Char = {
-		var start: Int = if (regex(0) != '^') 1 else 2
-		var end: Int = if (regex(regex.length - 1) != '$') (regex.length - 1) else (regex.length - 2)
+	def getMaxFreqLetter(str: String, stats: StatisticsManager): Char = {
+		val start: Int = if (str(0) != '^') 0 else 1
+		val end: Int = if (str(str.length - 1) != '$') str.length else (str.length - 1)
 
 		var maxFreq: Double = 0.0
 		var maxChar: Char = '\0'
 		for (i <- start until end) {
-			if (isLetter(regex(i)) && stats.getMiddleFreq(regex(i)) > maxFreq) {
-				maxFreq = stats.getMiddleFreq(regex(i))
-				maxChar = regex(i)
+			if (isLetter(str(i)) && stats.getContainsFreq(str(i)) > maxFreq) {
+				maxFreq = stats.getContainsFreq(str(i))
+				maxChar = str(i)
 			}
 		}
 		maxChar
@@ -43,7 +43,7 @@ object Utils {
 				}
 			}
 		}
-		return mat(s1.length - 1)(s2.length - 1) <= limit
+		return mat(s1.length)(s2.length) <= limit
 	}
 
 	private def min3(a: Int, b: Int, c: Int): Int = {
