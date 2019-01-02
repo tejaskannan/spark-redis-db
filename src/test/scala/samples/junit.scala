@@ -493,10 +493,12 @@ class AppTest {
 
     @Test
     def maxFreqLetter() {
-        assertEquals('a', Utils.getMaxFreqLetter("^abc$", statsManager))
-        assertEquals('e', Utils.getMaxFreqLetter("ebai", statsManager))
-        assertEquals('e', Utils.getMaxFreqLetter("^biaze", statsManager))
-        assertEquals('e', Utils.getMaxFreqLetter("biaze$", statsManager))
+        val maxFreqCutoff = 256
+        assertEquals('a', Utils.getMaxFreqLetter("^abc$", statsManager, maxFreqCutoff))
+        assertEquals('e', Utils.getMaxFreqLetter("ebai", statsManager, maxFreqCutoff))
+        assertEquals('e', Utils.getMaxFreqLetter("^biaze", statsManager, maxFreqCutoff))
+        assertEquals('e', Utils.getMaxFreqLetter("biaze$", statsManager, maxFreqCutoff))
+        assertEquals('x', Utils.getMaxFreqLetter("xe", statsManager, 1))
     }
 
     @Test

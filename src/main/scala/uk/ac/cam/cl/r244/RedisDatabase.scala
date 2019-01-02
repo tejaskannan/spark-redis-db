@@ -30,6 +30,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val t: Int = 1000
     private val timeout: Duration = Duration(t, "millis")
     private val setRemoveThreshold: Int = 100
+    private val maxFreqCutoff: Int = 256
 
     private val prefixName: String = "prefix"
     private val suffixName: String = "suffix"
@@ -91,7 +92,7 @@ class RedisDatabase(_host: String, _port: Int) {
     def countWithRegex(table: String, field: String, regex: String): Long = {
         val r: Regex = regex.r
         val cacheId: String = findRegexCacheName(regex)
-        val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
+        val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager, maxFreqCutoff)
         val singleLetter: Boolean = regex.filter(c => Utils.isLetter(c)).size == 1
         countWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(maxChar),
                   cacheId, singleLetter, true)
@@ -107,7 +108,7 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def countWithContains(table: String, field: String, substring: String): Long = {
-        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager)
+        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager, maxFreqCutoff)
         val cacheFilter: String => Boolean = str => str.contains(maxChar)
         val filter: String => Boolean = str => str.contains(substring)
         val cacheId: String = cacheIdFormat.format(regexName, maxChar)
@@ -132,7 +133,7 @@ class RedisDatabase(_host: String, _port: Int) {
     def getWithRegex(table: String, field: String, regex: String): List[Map[String, String]] = {
         val r: Regex = regex.r
         val cacheId: String = findRegexCacheName(regex)
-        val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
+        val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager, maxFreqCutoff)
         getWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(maxChar),
                 cacheId, true)
     }
@@ -147,7 +148,7 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def getWithContains(table: String, field: String, substring: String): List[Map[String, String]] = {
-        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager)
+        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager, maxFreqCutoff)
         val cacheFilter: String => Boolean = str => str.contains(maxChar)
         val filter: String => Boolean = str => str.contains(substring)
         val cacheId: String = cacheIdFormat.format(regexName, maxChar)
@@ -324,7 +325,7 @@ class RedisDatabase(_host: String, _port: Int) {
         } else if (regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
             cacheIdFormat.format(suffixName, regex(len - 2).toString)
         } else {
-            val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager)
+            val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager, maxFreqCutoff)
             cacheIdFormat.format(regexName, maxChar.toString)
         }
     }
