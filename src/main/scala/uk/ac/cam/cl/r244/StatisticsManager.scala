@@ -34,9 +34,14 @@ class StatisticsManager {
     private val numWrites: AtomicInteger = new AtomicInteger(0)
     private val numDeletes: AtomicInteger = new AtomicInteger(0)
 
+    // Tracks total number of comparisons SAVED by cache hits
     private val cacheHits: ConcurrentHashMap[String, AtomicInteger] = new ConcurrentHashMap[String, AtomicInteger]()
+    
+    // Tracks the timestamp (in terms of number of reads) at which each cache was created 
     private val cacheAdded: ConcurrentHashMap[String, Int] = new ConcurrentHashMap[String, Int]()
 
+    // Tracks the total number of records per table
+    private val tableCounts: ConcurrentHashMap[String, AtomicInteger] = new ConcurrentHashMap[String, AtomicInteger]()
 
     def getPrefixFreq(c: Char): Double = {
         prefixFreq(charToIndex(c))
@@ -48,6 +53,28 @@ class StatisticsManager {
 
     def getContainsFreq(c: Char): Double = {
         containsFreq(charToIndex(c))
+    }
+
+    def addCountToTable(table: String): Int = {
+        if (!tableCounts.containsKey(table)) {
+            tableCounts.put(table, new AtomicInteger(0))
+        }
+        tableCounts.get(table).addAndGet(1)
+    }
+
+    def removeCountFromTable(table: String): Int = {
+        if (!tableCounts.containsKey(table)) {
+            tableCounts.put(table, new AtomicInteger(0))
+        }
+        tableCounts.get(table).addAndGet(-1)
+    }
+
+    def getCountForTable(table: String): Int = {
+        if (!tableCounts.containsKey(table)) {
+            0
+        } else {
+            tableCounts.get(table).get
+        }
     }
 
     def addCache(cacheName: String): Unit = {
@@ -62,11 +89,12 @@ class StatisticsManager {
         }
     }
 
-    def addCacheHit(cacheName: String): Int = {
+    def addCacheHit(cacheName: String, tableName: String, countInCache: Int): Int = {
         if (!cacheHits.containsKey(cacheName)) {
             cacheHits.put(cacheName, new AtomicInteger(0))
         }
-        cacheHits.get(cacheName).addAndGet(1)
+        val numEntries: Int = getCountForTable(tableName)
+        cacheHits.get(cacheName).addAndGet(numEntries - countInCache)
     }
 
     def getNumHits(cacheName: String): Int = {

@@ -433,8 +433,14 @@ class AppTest {
         val id1 = "15"
         val data1 = Map((firstName -> "patrick"), (lastName -> "mahomes"), (college -> "texas tech"))
 
+        val id2 = "17"
+        val data2 = Map((firstName -> "philip"), (lastName -> "rivers"), (college -> "nc state"))
+
         db.write(table, id0, data0)
         db.write(table, id1, data1)
+        db.write(table, id2, data2)
+
+        Thread.sleep(1000)
 
         db.countWithPrefix(table, firstName, "p")
         db.countWithPrefix(table, lastName, "ma")
@@ -442,6 +448,7 @@ class AppTest {
         Thread.sleep(1000)
 
         db.countWithRegex(table, firstName, "p.*")
+        db.countWithPrefix(table, lastName, "ma")
 
         val cache0Name = cacheFormat.format(table, firstName, prefix, "p")
         val cache1Name = cacheFormat.format(table, lastName, prefix, "m")
@@ -457,16 +464,17 @@ class AppTest {
 
         Thread.sleep(1000)
 
-        assertTrue(db.cacheManager.contains(cache0Name))
+        assertTrue(db.cacheManager.contains(cache1Name))
         assertTrue(db.cacheManager.contains(cache2Name))
-        assertFalse(db.cacheManager.contains(cache1Name))
+        assertFalse(db.cacheManager.contains(cache0Name))
 
-        assertTrue(db.redisClient.exists(cache0Name))
+        assertTrue(db.redisClient.exists(cache1Name))
         assertTrue(db.redisClient.exists(cache2Name))
-        assertFalse(db.redisClient.exists(cache1Name))
+        assertFalse(db.redisClient.exists(cache0Name))
 
         db.delete(table, id0)
         db.delete(table, id1)
+        db.delete(table, id2)
         db.deleteCache(cache0Name)
         db.deleteCache(cache2Name)
 

@@ -52,6 +52,7 @@ class RedisDatabase(_host: String, _port: Int) {
         updateCaches(table, id, existingRecord, data)
 
         statsManager.addWrite()
+        statsManager.addCountToTable(table)
 
         key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
@@ -60,6 +61,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val key: String = createKey(table, id)
         removeIdFromCaches(table, id)
         statsManager.addDelete()
+        statsManager.removeCountFromTable(table)
         redisClient.del(key)
     }
 
@@ -162,8 +164,6 @@ class RedisDatabase(_host: String, _port: Int) {
         statsManager.addRead()
 
         if (!cacheManager.contains(fullCacheName)) {
-            statsManager.addCacheHit(fullCacheName)
-
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
@@ -184,12 +184,16 @@ class RedisDatabase(_host: String, _port: Int) {
             // If the query is only a single letter, we can get the count directly from
             // the cache
             if (singleLetter) {
-                redisClient.scard(fullCacheName).get
+                val count: Long = redisClient.scard(fullCacheName).get
+                statsManager.addCacheHit(fullCacheName, table, count.toInt)
+                count
             } else {
                 // We fetch the indices into memory as the set of indices is small
                 val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
                                                         .map(x => keyFormat.format(table, x.get))
                                                         .toArray
+
+                statsManager.addCacheHit(fullCacheName, table, indices.size)
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
                 hashRDD.filter(entry => entry._1.startsWith(fieldPrefix) && filter(entry._2))
@@ -209,8 +213,6 @@ class RedisDatabase(_host: String, _port: Int) {
         statsManager.addRead()
 
         if (!cacheManager.contains(fullCacheName)) {
-            statsManager.addCacheHit(fullCacheName)
-
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
@@ -233,6 +235,9 @@ class RedisDatabase(_host: String, _port: Int) {
             val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
                                                     .map(x => keyFormat.format(table, x.get))
                                                     .toArray
+
+            statsManager.addCacheHit(fullCacheName, table, indices.size)
+
             val hashRDD = sparkContext.fromRedisHash(indices)
             ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix) && filter(entry._2))
                          .map(entry => entry._1.split(":")(valueIndex))
