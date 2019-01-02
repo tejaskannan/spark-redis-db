@@ -18,8 +18,9 @@ class RedisDatabase(_host: String, _port: Int) {
     val port: Int = _port
 
     val redisClient = new RedisClient(host, port)
-    val cacheManager = new CacheManager(16)
     val statsManager = new StatisticsManager()
+    val cacheSize = 16
+    val cacheManager = new CacheManager(cacheSize, statsManager)
 
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
@@ -50,12 +51,15 @@ class RedisDatabase(_host: String, _port: Int) {
         val existingRecord: Map[String, String] = get(table, id)
         updateCaches(table, id, existingRecord, data)
 
+        statsManager.addWrite()
+
         key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
 
     def delete(table: String, id: String): Option[Long] = {
         val key: String = createKey(table, id)
         removeIdFromCaches(table, id)
+        statsManager.addDelete()
         redisClient.del(key)
     }
 
@@ -155,7 +159,11 @@ class RedisDatabase(_host: String, _port: Int) {
         val fullCacheName: String = createCacheName(table, field, cacheName)
         val fieldPrefix: String = keyFormat.format(field, "")
 
+        statsManager.addRead()
+
         if (!cacheManager.contains(fullCacheName)) {
+            statsManager.addCacheHit(fullCacheName)
+
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
@@ -198,7 +206,11 @@ class RedisDatabase(_host: String, _port: Int) {
         var ids: List[String] = List()
         val valueIndex: Int = 1
 
+        statsManager.addRead()
+
         if (!cacheManager.contains(fullCacheName)) {
+            statsManager.addCacheHit(fullCacheName)
+
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))

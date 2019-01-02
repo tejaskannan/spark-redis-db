@@ -11,6 +11,7 @@ class AppTest {
     val table = "nfl"
     val firstName = "firstName"
     val lastName = "lastName"
+    val college = "college"
     val cacheFormat = "%s:%s:%s:%s"
     val prefix = "prefix"
     val suffix = "suffix"
@@ -24,6 +25,7 @@ class AppTest {
         val port: Int = 6379
         val host: String = "localhost"
         db = new RedisDatabase(host, port)
+        db.cacheManager.setSize(16)
     }
 
     @Test
@@ -379,8 +381,6 @@ class AppTest {
 
     @Test
     def addToCache() {
-        val college = "college"
-
         val id0 = "1"
         val data0 = Map((firstName -> "cam"), (lastName -> "newton"), (college -> "auburn"))
         assertTrue(db.write(table, id0, data0))
@@ -419,6 +419,58 @@ class AppTest {
         db.delete(table, id2)        
         db.deleteCache(prefixCacheName)
         db.deleteCache(collegeCacheName)
+    }
+
+    // This test must be run with a cache size of 2
+    @Test
+    def cacheReplacement() {
+
+        db.cacheManager.setSize(2)
+
+        val id0 = "18" 
+        val data0 = Map((firstName -> "peyton"), (lastName -> "manning"), (college -> "tennessee"))
+
+        val id1 = "15"
+        val data1 = Map((firstName -> "patrick"), (lastName -> "mahomes"), (college -> "texas tech"))
+
+        db.write(table, id0, data0)
+        db.write(table, id1, data1)
+
+        db.countWithPrefix(table, firstName, "p")
+        db.countWithPrefix(table, lastName, "ma")
+
+        Thread.sleep(1000)
+
+        db.countWithRegex(table, firstName, "p.*")
+
+        val cache0Name = cacheFormat.format(table, firstName, prefix, "p")
+        val cache1Name = cacheFormat.format(table, lastName, prefix, "m")
+
+        assertTrue(db.cacheManager.contains(cache0Name))
+        assertTrue(db.cacheManager.contains(cache1Name))
+
+        assertTrue(db.redisClient.exists(cache0Name))
+        assertTrue(db.redisClient.exists(cache1Name))
+
+        db.countWithPrefix(table, college, "te")
+        val cache2Name = cacheFormat.format(table, college, prefix, "t")
+
+        Thread.sleep(1000)
+
+        assertTrue(db.cacheManager.contains(cache0Name))
+        assertTrue(db.cacheManager.contains(cache2Name))
+        assertFalse(db.cacheManager.contains(cache1Name))
+
+        assertTrue(db.redisClient.exists(cache0Name))
+        assertTrue(db.redisClient.exists(cache2Name))
+        assertFalse(db.redisClient.exists(cache1Name))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cache0Name)
+        db.deleteCache(cache2Name)
+
+        db.cacheManager.setSize(16)
     }
 
     @Test

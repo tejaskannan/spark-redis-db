@@ -5,6 +5,10 @@ package uk.ac.cam.cl.r244
  */
 
 import scala.collection.mutable.Map
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentHashMap
+import collection.JavaConversions._
+
 
 class StatisticsManager {
 
@@ -26,6 +30,12 @@ class StatisticsManager {
                                                     0.0668, 0.0661, 0.0414, 0.0115, 0.0077, 0.0038,
                                                     0.0241, 0.0051)
 
+    private val numReads: AtomicInteger = new AtomicInteger(0)
+    private val numWrites: AtomicInteger = new AtomicInteger(0)
+    private val numDeletes: AtomicInteger = new AtomicInteger(0)
+
+    private val cacheHits: ConcurrentHashMap[String, AtomicInteger] = new ConcurrentHashMap[String, AtomicInteger]()
+    private val cacheAdded: ConcurrentHashMap[String, Int] = new ConcurrentHashMap[String, Int]()
 
 
     def getPrefixFreq(c: Char): Double = {
@@ -38,6 +48,62 @@ class StatisticsManager {
 
     def getContainsFreq(c: Char): Double = {
         containsFreq(charToIndex(c))
+    }
+
+    def addCache(cacheName: String): Unit = {
+        cacheAdded.put(cacheName, numReads.get)
+    }
+
+    def getCacheAdded(cacheName: String): Int = {
+        if (!cacheAdded.containsKey(cacheName)) {
+            0
+        } else {
+            cacheAdded.get(cacheName)
+        }
+    }
+
+    def addCacheHit(cacheName: String): Int = {
+        if (!cacheHits.containsKey(cacheName)) {
+            cacheHits.put(cacheName, new AtomicInteger(0))
+        }
+        cacheHits.get(cacheName).addAndGet(1)
+    }
+
+    def getNumHits(cacheName: String): Int = {
+        if (!cacheHits.containsKey(cacheName)) {
+            0
+        } else {
+            cacheHits.get(cacheName).get
+        }
+    }
+
+    def removeCache(cacheName: String): Unit = {
+        cacheHits.remove(cacheName)
+        cacheAdded.remove(cacheName)
+    }
+
+    def addRead(): Int = {
+        numReads.addAndGet(1)
+    }
+
+    def getNumReads(): Int = {
+        numReads.get
+    }
+
+    def addWrite(): Int = {
+        numWrites.addAndGet(1)
+    }
+
+    def getNumWrites(): Int = {
+        numWrites.get
+    }
+
+    def addDelete(): Int = {
+        numDeletes.addAndGet(1)
+    }
+
+    def getNumDeletes(): Int = {
+        numDeletes.get
     }
 
     // Only works with lowercase letters for now

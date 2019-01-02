@@ -3,8 +3,9 @@ package uk.ac.cam.cl.r244
 import java.util.concurrent.ConcurrentHashMap
 import collection.JavaConversions._
 
-class CacheManager(_sizeLimit: Int) {
-    val sizeLimit: Int = _sizeLimit
+class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
+    private var sizeLimit: Int = _sizeLimit
+    private val splitToken: String = ":"
 
     // Used to store the names of cached objects for quick lookup
     // The values are the utility scores of each entry. Since the cache
@@ -15,9 +16,17 @@ class CacheManager(_sizeLimit: Int) {
         cache.containsKey(key)
     }
 
+    def setSize(newSize: Int): Unit = {
+        sizeLimit = newSize
+    }
+
+    def getSize(): Int = {
+        sizeLimit
+    }
+
     def getCacheNamesWith(table: String, queryType: String): List[String] = {
         cache.keys.filter(name => {
-            val tokens = name.split(":")
+            val tokens = name.split(splitToken)
             tokens(0) == table && tokens(2) == queryType
         }).toList
     }
@@ -26,28 +35,31 @@ class CacheManager(_sizeLimit: Int) {
         cache.keys.filter(name => name.startsWith(prefix)).toList
     }
 
+    def getCacheScore(cacheName: String): Double = {
+        val age: Int = statsManager.getNumReads - statsManager.getCacheAdded(cacheName)
+        val hits: Int = statsManager.getNumHits(cacheName)
+        hits.toDouble / age.toDouble
+    }
+
     def add(key: String, replaceFunc: String => Unit): Unit = {
         if (cache.size == sizeLimit) {
             // Remove the entry with the minimum score
             var minKey = ""
-            var minValue: Int = Int.MaxValue
+            var minValue: Double = Double.MaxValue
             for (key <- cache.keySet()) {
-                if (cache.get(key) < minValue) {
-                    minValue = cache.get(key)
+                val score: Double = getCacheScore(key)
+                if (score < minValue) {
+                    minValue = score
                     minKey = key
                 }
             }
 
             cache.remove(minKey)
+            statsManager.removeCache(minKey)
             replaceFunc(minKey) // This should drop the redis set
         }
 
-        // For now, everything is given a score of zero. This will change with
-        // a new replacement policy based on utility and workload.
         cache.put(key, 0)
+        statsManager.addCache(key)
     }
-
-    // Edit Distance, Smith-Waterman, Ulam Distance
-
 }
-
