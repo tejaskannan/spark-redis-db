@@ -167,20 +167,25 @@ class RedisDatabase(_host: String, _port: Int) {
         if (!cacheManager.contains(fullCacheName)) {
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
-            var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-            if (!multiWord) {
+            // We don't cache multiword queries because they are a subset
+            // of the total results (for single-word queries)
+            if (multiWord) {
+                hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                       .filter(entry => filter(entry._2)).count()
+            } else {
+                var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
                 cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
-            }
-            cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
-            
-            // Add indices to the cache asychronously
-            Future {
-                sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
-                                              fullCacheName)
-                cacheManager.add(fullCacheName, deleteCache)
-            }
+                                   .filter(entry => cacheFilter(entry._2))
+                
+                // Add indices to the cache asychronously
+                Future {
+                    sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
+                                                  fullCacheName)
+                    cacheManager.add(fullCacheName, deleteCache)
+                }
 
-            cacheRDD.filter(entry => filter(entry._2)).count()
+                cacheRDD.filter(entry => filter(entry._2)).count()
+            }   
         } else {
             // If the query is only a single letter, we can get the count directly from
             // the cache
@@ -216,22 +221,27 @@ class RedisDatabase(_host: String, _port: Int) {
         if (!cacheManager.contains(fullCacheName)) {
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
-            var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-            if (!multiWord) {
+            if (multiWord) {
+                ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                             .filter(entry => filter(entry._2))
+                             .map(entry => entry._1.split(":")(valueIndex))
+                             .collect().toList
+            } else {
+                var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
                 cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
-            }
-            cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
+                                   .filter(entry => cacheFilter(entry._2))
 
-            // Add indices to the cache asychronously
-            Future {
-                sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
-                                        fullCacheName)
-                cacheManager.add(fullCacheName, deleteCache)
-            }
+                // Add indices to the cache asychronously
+                Future {
+                    sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
+                                            fullCacheName)
+                    cacheManager.add(fullCacheName, deleteCache)
+                }
 
-            ids = cacheRDD.filter(entry => filter(entry._2))
-                          .map(entry => entry._1.split(":")(valueIndex))
-                          .collect().toList
+                ids = cacheRDD.filter(entry => filter(entry._2))
+                              .map(entry => entry._1.split(":")(valueIndex))
+                              .collect().toList
+            }
         } else {
             val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
                                                     .map(x => keyFormat.format(table, x.get))
