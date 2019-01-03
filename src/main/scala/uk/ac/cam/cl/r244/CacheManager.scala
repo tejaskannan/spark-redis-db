@@ -6,14 +6,35 @@ import collection.JavaConversions._
 class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
     private var sizeLimit: Int = _sizeLimit
     private val splitToken: String = ":"
+    private val cacheNameFormat: String = "%s:%s:%s"
 
     // Used to store the names of cached objects for quick lookup
     // The values are the utility scores of each entry. Since the cache
     // is small, iterating over the entire cache for eviction should be okay
     val cache: ConcurrentHashMap[String, Int] = new ConcurrentHashMap()
 
-    def contains(key: String): Boolean = {
-        cache.containsKey(key)
+    def get(key: String): Option[String] = {
+        if (cache.containsKey(key)) {
+            Some(key)
+        } else {
+            val tokens: Array[String] = key.split(splitToken)
+            if (tokens.length <= 4) {
+                None
+            } else {
+                val min: Int = tokens(3).toInt
+                val max: Int = tokens(4).toInt
+                val base: String = cacheNameFormat.format(tokens(0), tokens(1), tokens(2))
+                for (name <- cache.keys) {
+                    if (name.startsWith(base)) {
+                        val nameTokens: Array[String] = name.split(splitToken)
+                        if (nameTokens(3).toInt <= min && nameTokens(4).toInt >= max) {
+                            return Some(name)
+                        }
+                    }
+                }
+                None
+            }
+        }        
     }
 
     def setSize(newSize: Int): Unit = {

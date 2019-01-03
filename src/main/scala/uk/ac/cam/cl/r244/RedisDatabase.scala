@@ -102,7 +102,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val minLength: Int = target.length - dist
         val maxLength: Int = target.length + dist
         val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
-        val cacheFilter: String => Boolean = str => (target.length - dist <= str.length && str.length <= target.length + dist)
+        val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
         countWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter,
                   cacheId, false, wordsRegex.findFirstIn(target) != None)
     }
@@ -159,12 +159,14 @@ class RedisDatabase(_host: String, _port: Int) {
     private def countWith(table: String, field: String, filter: String => Boolean,
                           cacheFilter: String => Boolean, cacheName: String,
                           singleLetter: Boolean, multiWord: Boolean): Long = {
-        val fullCacheName: String = createCacheName(table, field, cacheName)
         val fieldPrefix: String = keyFormat.format(field, "")
 
         statsManager.addRead()
 
-        if (!cacheManager.contains(fullCacheName)) {
+        val cache: Option[String] = cacheManager.get(createCacheName(table, field, cacheName))
+
+        if (cache == None) {
+            val fullCacheName = createCacheName(table, field, cacheName)
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             // We don't cache multiword queries because they are a subset
@@ -187,6 +189,7 @@ class RedisDatabase(_host: String, _port: Int) {
                 cacheRDD.filter(entry => filter(entry._2)).count()
             }   
         } else {
+            val fullCacheName = cache.get
             // If the query is only a single letter, we can get the count directly from
             // the cache
             if (singleLetter) {
@@ -202,8 +205,9 @@ class RedisDatabase(_host: String, _port: Int) {
                 statsManager.addCacheHit(fullCacheName, table, indices.size)
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
-                hashRDD.filter(entry => entry._1.startsWith(fieldPrefix) && filter(entry._2))
-                       .count()
+                hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                       .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
+                       .filter(entry => filter(entry._2)).count()
             }
         }
     }
@@ -211,14 +215,16 @@ class RedisDatabase(_host: String, _port: Int) {
     private def getWith(table: String, field: String, filter: String => Boolean,
                         cacheFilter: String => Boolean, cacheName: String,
                         multiWord: Boolean): List[Map[String, String]] = {
-        val fullCacheName: String = createCacheName(table, field, cacheName)
         val fieldPrefix: String = keyFormat.format(field, "")
         var ids: List[String] = List()
         val valueIndex: Int = 1
 
         statsManager.addRead()
 
-        if (!cacheManager.contains(fullCacheName)) {
+        val cache: Option[String] = cacheManager.get(createCacheName(table, field, cacheName))
+
+        if (cache == None) {
+            val fullCacheName = createCacheName(table, field, cacheName)
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             if (multiWord) {
@@ -243,6 +249,7 @@ class RedisDatabase(_host: String, _port: Int) {
                               .collect().toList
             }
         } else {
+            val fullCacheName = cache.get
             val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
                                                     .map(x => keyFormat.format(table, x.get))
                                                     .toArray
@@ -250,7 +257,9 @@ class RedisDatabase(_host: String, _port: Int) {
             statsManager.addCacheHit(fullCacheName, table, indices.size)
 
             val hashRDD = sparkContext.fromRedisHash(indices)
-            ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix) && filter(entry._2))
+            ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                         .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
+                         .filter(entry => filter(entry._2))
                          .map(entry => entry._1.split(":")(valueIndex))
                          .collect().toList
         }
@@ -279,13 +288,13 @@ class RedisDatabase(_host: String, _port: Int) {
 
         val prefixes = newData.map(e => (e._1, e._2(0)))
                               .map(e => (cacheNameFormat.format(table, e._1, prefixName + ":" + e._2), e._2))
-                              .filter(e => cacheManager.contains(e._1))
+                              .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val prefixAdds = prefixes.map(name => (() => redisClient.sadd(name, id)))
 
         val suffixes = newData.map(e => (e._1, e._2(e._2.length - 1)))
                               .map(e => (cacheNameFormat.format(table, e._1, suffixName + ":" + e._2), e._2))
-                              .filter(e => cacheManager.contains(e._1))
+                              .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val suffixAdds = suffixes.map(name => (() => redisClient.sadd(name, id)))
 

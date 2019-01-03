@@ -453,8 +453,8 @@ class AppTest {
         val cache0Name = cacheFormat.format(table, firstName, prefix, "p")
         val cache1Name = cacheFormat.format(table, lastName, prefix, "m")
 
-        assertTrue(db.cacheManager.contains(cache0Name))
-        assertTrue(db.cacheManager.contains(cache1Name))
+        assertTrue(db.cacheManager.get(cache0Name) != None)
+        assertTrue(db.cacheManager.get(cache1Name) != None)
 
         assertTrue(db.redisClient.exists(cache0Name))
         assertTrue(db.redisClient.exists(cache1Name))
@@ -464,9 +464,9 @@ class AppTest {
 
         Thread.sleep(1000)
 
-        assertTrue(db.cacheManager.contains(cache1Name))
-        assertTrue(db.cacheManager.contains(cache2Name))
-        assertFalse(db.cacheManager.contains(cache0Name))
+        assertTrue(db.cacheManager.get(cache1Name) != None)
+        assertTrue(db.cacheManager.get(cache2Name) != None)
+        assertTrue(db.cacheManager.get(cache0Name) == None)
 
         assertTrue(db.redisClient.exists(cache1Name))
         assertTrue(db.redisClient.exists(cache2Name))
@@ -479,6 +479,39 @@ class AppTest {
         db.deleteCache(cache2Name)
 
         db.cacheManager.setSize(16)
+    }
+
+    @Test
+    def editDistanceCaching() {
+        val id0 = "12"
+        val data0 = Map((firstName -> "tom"), (lastName -> "brady"))
+
+        val id1 = "10"
+        val data1 = Map((firstName -> "tim"), (lastName -> "brown"))
+
+        db.write(table, id0, data0)
+        db.write(table, id1, data1)
+
+        assertEquals(2, db.countWithEditDistance(table, firstName, "tamm", 2))
+
+        Thread.sleep(1000)
+
+        assertEquals(2, db.countWithEditDistance(table, firstName, "tam", 1))
+
+        Thread.sleep(1000)
+
+        val cacheName = cacheFormat.format(table, firstName, editdist, "2:6")
+        val wrongName = cacheFormat.format(table, firstName, editdist, "2:4")
+        assertTrue(db.cacheManager.get(cacheName) != None)
+        assertTrue(db.cacheManager.get(wrongName) != None)
+        assertEquals(cacheName, db.cacheManager.get(wrongName).get)
+
+        assertTrue(db.redisClient.exists(cacheName))
+        assertFalse(db.redisClient.exists(wrongName))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cacheName)
     }
 
     @Test

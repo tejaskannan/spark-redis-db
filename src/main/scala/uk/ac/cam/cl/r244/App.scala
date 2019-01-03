@@ -17,14 +17,14 @@ object App {
     db.countWithPrefix(table, field, "ov")
 
     val t0 = System.nanoTime()
-    println(db.getWithContains(table, field, "younger"))
+    println(db.countWithEditDistance(table, field, "these", 3))
     val elapsed0 = (System.nanoTime() - t0) / 1000000.0
     println("Time to Exec Query: " + elapsed0.toString + "ms")
 
     Thread.sleep(1000)
 
     val t1 = System.nanoTime()
-    println(db.getWithContains(table, field, "ave f"))
+    println(db.countWithEditDistance(table, field, "query", 2))
     val elapsed1 = (System.nanoTime() - t1) / 1000000.0
     println("Time to Exec Query: " + elapsed1.toString + "ms")    
 
