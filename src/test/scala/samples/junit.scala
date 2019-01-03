@@ -489,6 +489,8 @@ class AppTest {
         assertFalse(Utils.editDistance("book", "back", 1))
         assertTrue(Utils.editDistance("tavon", "tavlor", 2))
         assertFalse(Utils.editDistance("tavon", "tavlor", 1))
+        assertTrue(Utils.editDistance("play", "playdate", 4))
+        assertFalse(Utils.editDistance("play", "playdate", 3))
     }
 
     @Test

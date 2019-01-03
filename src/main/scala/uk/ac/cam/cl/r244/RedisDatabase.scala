@@ -19,7 +19,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     val redisClient = new RedisClient(host, port)
     val statsManager = new StatisticsManager()
-    val cacheSize = 16
+    val cacheSize = 64
     val cacheManager = new CacheManager(cacheSize, statsManager)
 
     private val keyFormat: String = "%s:%s"
