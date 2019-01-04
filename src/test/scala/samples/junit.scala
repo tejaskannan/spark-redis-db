@@ -196,8 +196,9 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
-        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "d"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "ste"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "are"))
     }
 
     @Test
@@ -226,8 +227,9 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, lastName, contains, "s"))
-        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "d"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "ste"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "are"))
     }
 
     @Test
@@ -526,6 +528,13 @@ class AppTest {
         assertFalse(Utils.editDistance("tavon", "tavlor", 1))
         assertTrue(Utils.editDistance("play", "playdate", 4))
         assertFalse(Utils.editDistance("play", "playdate", 3))
+    }
+
+    @Test
+    def longestSubstring() {
+        assertEquals("abc", Utils.getLongestCharSubstring("abc"))
+        assertEquals("abc", Utils.getLongestCharSubstring("abc&k"))
+        assertEquals("abc", Utils.getLongestCharSubstring("$.*abc[d|e]+^"))
     }
 
     @Test

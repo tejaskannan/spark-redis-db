@@ -72,6 +72,45 @@ object Utils {
         }
     }
 
+    def getLongestCharSubstring(regex: String): String = {
+        var index = 0
+        while (index < regex.length && !isLetter(regex(index))) {
+            index += 1
+        }
+        if (index == regex.length) {
+            regex
+        } else {
+            var start = index
+            index += 1
+
+            var bestStart = start
+            var bestEnd = start + 1
+            while (index < regex.length) {
+                if (!isLetter(regex(index))) {
+                    if (index - start > bestEnd - bestStart) {
+                        bestStart = start
+                        bestEnd = index
+                    }
+                    start = index + 1
+                }
+                index += 1
+            }
+            if ((index - start) > bestEnd - bestStart) {
+                regex.substring(start, index)
+            } else {
+                regex.substring(bestStart, bestEnd)
+            }
+        }
+    }
+
+    def max(a: Int, b: Int): Int = {
+        if (a > b) {
+            a
+        } else {
+            b
+        }
+    }
+
     private def min3(a: Int, b: Int, c: Int): Int = {
         if (a < b && a < c) {
             a

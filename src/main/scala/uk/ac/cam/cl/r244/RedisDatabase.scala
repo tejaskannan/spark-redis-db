@@ -108,7 +108,7 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def countWithEditDistance(table: String, field: String, target: String, dist: Int): Long = {
-        val minLength: Int = target.length - dist
+        val minLength: Int = Utils.max(target.length - dist, 0)
         val maxLength: Int = target.length + dist
         val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
         val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
@@ -158,7 +158,7 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def getWithEditDistance(table: String, field: String, target: String, dist: Int): List[Map[String, String]] = {
-        val minLength: Int = target.length - dist
+        val minLength: Int = Utils.max(target.length - dist, 0)
         val maxLength: Int = target.length + dist
         val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
         val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
@@ -342,10 +342,25 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         }
-
         val containsAdds = containsCaches.map(name => (() => redisClient.sadd(name, id)))
+
+        val editDistCaches = new ListBuffer[String]()
+        for (field <- fieldsToUpdate) {
+            val name: String = cacheNameFormat.format(table, field, editDistName)
+            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
+            for (cacheName <- cacheNames) {
+                val tokens: Array[String] = cacheName.split(":")
+                val min: Int = tokens(tokens.length - 2).toInt
+                val max: Int = tokens(tokens.length - 1).toInt
+                if (newData(field).length >= min && newData(field).length <= max) {
+                    editDistCaches += cacheName
+                }
+            }
+        }
+        val editDistAdds = editDistCaches.map(name => (() => redisClient.sadd(name, id)))
+
         val addExec = redisClient.pipelineNoMulti(prefixAdds ++ prefixDoubleAdds ++ suffixAdds ++
-                                                  suffixDoubleAdds ++ containsAdds)
+                                                  suffixDoubleAdds ++ containsAdds ++ editDistAdds)
         addExec.map(a => Await.result(a.future, timeout * 10))
                .map(_.asInstanceOf[Option[Long]])
                .map(_.get)
@@ -369,20 +384,12 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def findRegexCacheName(regex: String): String = {
         val len: Int = regex.length
-        if (len == 1 && Utils.isLetter(regex(0))) {
-            cacheIdFormat.format(prefixName, regex(0).toString)
-        } else if (len > 1 && Utils.isLetter(regex(0)) && Utils.isLetter(regex(1))) {
-            cacheIdFormat.format(prefixName, regex(0).toString + regex(1).toString)
-        } else if (len > 1 && regex(0) == '^' && Utils.isLetter(regex(1))) {
+        if (len > 1 && regex(0) == '^' && Utils.isLetter(regex(1))) {
             if (len > 2 && Utils.isLetter(regex(2))) {
                 cacheIdFormat.format(prefixName, regex(1).toString + regex(2).toString)
             } else {
                 cacheIdFormat.format(prefixName, regex(1).toString)
             }
-        } else if (len == 1 && Utils.isLetter(regex(len - 1))) {
-            cacheIdFormat.format(suffixName, regex(len - 1).toString)
-        } else if (len > 1 && Utils.isLetter(regex(len - 1)) && Utils.isLetter(regex(len - 2))) {
-            cacheIdFormat.format(suffixName, regex(len - 2).toString + regex(len - 1).toString)
         } else if (len > 1 && regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
             if (len > 2 && Utils.isLetter(regex(len - 3))) {
                 cacheIdFormat.format(suffixName, regex(len - 2).toString + regex(len - 1).toString)
@@ -390,8 +397,7 @@ class RedisDatabase(_host: String, _port: Int) {
                 cacheIdFormat.format(suffixName, regex(len - 2).toString)
             }
         } else {
-            val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager, maxFreqCutoff)
-            cacheIdFormat.format(regexName, maxChar.toString)
+            cacheIdFormat.format(regexName, Utils.getLongestCharSubstring(regex))
         }
     }
 
@@ -400,7 +406,11 @@ class RedisDatabase(_host: String, _port: Int) {
         val tokens: Array[String] = substring.split(" ")
         for (token <- tokens) {
             if (!stopwords.words.contains(token)) {
-                return token
+                if (token.length > 5) {
+                    return token.substring(1, token.length)
+                } else {
+                    return token
+                }
             }
         }
         return substring
