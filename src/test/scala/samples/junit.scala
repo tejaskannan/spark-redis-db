@@ -74,15 +74,15 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, firstName, prefix, "p"))
-        db.deleteCache(cacheFormat.format(table, lastName, prefix, "m"))
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "pa"))
+        db.deleteCache(cacheFormat.format(table, lastName, prefix, "ma"))
         db.deleteCache(cacheFormat.format(table, firstName, prefix, "a"))
     }
 
     @Test
     def sparkGetPrefix(): Unit = {
         val id0 = "15"
-        val data0 = Map((firstName -> "patrick"), (lastName -> "mahomes"))
+        val data0 = Map((firstName -> "petrick"), (lastName -> "mahomes"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
@@ -99,7 +99,7 @@ class AppTest {
 
         // Test the caching
         Thread.sleep(1000)
-        val getPrefixCache: List[Map[String, String]] = db.getWithPrefix(table, firstName, "p")
+        val getPrefixCache: List[Map[String, String]] = db.getWithPrefix(table, firstName, "pe")
         listMapEquals(dataLst, getPrefixCache)
 
         val getPrefix1: List[Map[String, String]] = db.getWithPrefix(table, lastName, "ma")
@@ -110,9 +110,9 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, firstName, prefix, "p"))
-        db.deleteCache(cacheFormat.format(table, lastName, prefix, "m"))
-        db.deleteCache(cacheFormat.format(table, firstName, prefix, "a"))
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "pe"))
+        db.deleteCache(cacheFormat.format(table, lastName, prefix, "ma"))
+        db.deleteCache(cacheFormat.format(table, firstName, prefix, "an"))
     }
 
     @Test
@@ -138,9 +138,9 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, firstName, suffix, "k"))
+        db.deleteCache(cacheFormat.format(table, firstName, suffix, "ck"))
         db.deleteCache(cacheFormat.format(table, lastName, suffix, "s"))
-        db.deleteCache(cacheFormat.format(table, firstName, suffix, "e"))
+        db.deleteCache(cacheFormat.format(table, firstName, suffix, "re"))
     }
 
     @Test
@@ -169,8 +169,8 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, lastName, suffix, "s"))
-        db.deleteCache(cacheFormat.format(table, firstName, suffix, "k"))
+        db.deleteCache(cacheFormat.format(table, lastName, suffix, "es"))
+        db.deleteCache(cacheFormat.format(table, firstName, suffix, "ck"))
     }
 
     @Test
@@ -253,8 +253,9 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
-        db.deleteCache(cacheFormat.format(table, lastName, contains, "e"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "ame"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "hez"))
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "ite"))
     }
     
     @Test
@@ -283,8 +284,9 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheFormat.format(table, firstName, contains, "e"))
-        db.deleteCache(cacheFormat.format(table, lastName, contains, "e"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "ame"))
+        db.deleteCache(cacheFormat.format(table, firstName, contains, "hez"))
+        db.deleteCache(cacheFormat.format(table, lastName, contains, "ite"))
     }
 
     @Test
@@ -364,7 +366,7 @@ class AppTest {
 
         Thread.sleep(1000)
 
-        val cacheName = cacheFormat.format(table, firstName, prefix, "t")
+        val cacheName = cacheFormat.format(table, firstName, prefix, "to")
 
         val isPresentBefore: Boolean = db.redisClient.sismember(cacheName, id1)
         assertTrue(isPresentBefore)
@@ -390,10 +392,10 @@ class AppTest {
         Thread.sleep(1000)
 
         val id1 = "6"
-        val data1 = Map((firstName -> "cody"), (lastName -> "kessler"), (college -> "usc"))
+        val data1 = Map((firstName -> "cady"), (lastName -> "kessler"), (college -> "usc"))
         assertTrue(db.write(table, id1, data1))
 
-        val prefixCacheName = cacheFormat.format(table, firstName, prefix, "c")
+        val prefixCacheName = cacheFormat.format(table, firstName, prefix, "ca")
         val isPresent0: Boolean = db.redisClient.sismember(prefixCacheName, id1)
         assertTrue(isPresent0)
 
@@ -451,7 +453,7 @@ class AppTest {
         db.countWithPrefix(table, lastName, "ma")
 
         val cache0Name = cacheFormat.format(table, firstName, prefix, "p")
-        val cache1Name = cacheFormat.format(table, lastName, prefix, "m")
+        val cache1Name = cacheFormat.format(table, lastName, prefix, "ma")
 
         assertTrue(db.cacheManager.get(cache0Name) != None)
         assertTrue(db.cacheManager.get(cache1Name) != None)
@@ -460,7 +462,7 @@ class AppTest {
         assertTrue(db.redisClient.exists(cache1Name))
 
         db.countWithPrefix(table, college, "te")
-        val cache2Name = cacheFormat.format(table, college, prefix, "t")
+        val cache2Name = cacheFormat.format(table, college, prefix, "te")
 
         Thread.sleep(1000)
 

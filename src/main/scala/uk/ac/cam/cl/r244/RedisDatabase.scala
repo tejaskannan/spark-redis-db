@@ -21,6 +21,7 @@ class RedisDatabase(_host: String, _port: Int) {
     val statsManager = new StatisticsManager()
     val cacheSize = 64
     val cacheManager = new CacheManager(cacheSize, statsManager)
+    val stopwords = new Stopwords()
 
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
@@ -77,14 +78,22 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def countWithPrefix(table: String, field: String, prefix: String): Long = {
         val cacheFilter: String => Boolean = str => str(0) == prefix(0)
-        val cacheId: String = cacheIdFormat.format(prefixName, prefix(0).toString)
+        var cacheChars: String = prefix(0).toString
+        if (prefix.length > 1) {
+            cacheChars += prefix(1).toString
+        }
+        val cacheId: String = cacheIdFormat.format(prefixName, cacheChars)
         countWith(table, field, str => str.startsWith(prefix), cacheFilter,
                   cacheId, prefix.length == 1, wordsRegex.findFirstIn(prefix) != None)
     }
 
     def countWithSuffix(table: String, field: String, suffix: String): Long = {
         val cacheFilter: String => Boolean = str => str(str.length - 1) == suffix(suffix.length - 1)
-        val cacheId: String = cacheIdFormat.format(suffixName, suffix(suffix.length - 1).toString)
+        var cacheChars: String = suffix(suffix.length - 1).toString
+        if (suffix.length > 1) {
+            cacheChars = suffix(suffix.length - 2).toString + cacheChars
+        }
+        val cacheId: String = cacheIdFormat.format(suffixName, cacheChars)
         countWith(table, field, str => str.endsWith(suffix), cacheFilter,
                   cacheId, suffix.length == 1, wordsRegex.findFirstIn(suffix) != None)
     }
@@ -108,24 +117,34 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def countWithContains(table: String, field: String, substring: String): Long = {
-        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager, maxFreqCutoff)
-        val cacheFilter: String => Boolean = str => str.contains(maxChar)
+        val cacheWord: String = containsCacheName(substring)
+        val cacheFilter: String => Boolean = str => str.contains(cacheWord)
         val filter: String => Boolean = str => str.contains(substring)
-        val cacheId: String = cacheIdFormat.format(regexName, maxChar)
+        val cacheId: String = cacheIdFormat.format(regexName, cacheWord)
         val multiWord: Boolean = wordsRegex.findFirstIn(substring) != None
         countWith(table, field, filter, cacheFilter, cacheId, substring.length == 1, multiWord)
     }
 
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
         val cacheFilter: String => Boolean = str => str(0) == prefix(0)
-        val cacheId: String = cacheIdFormat.format(prefixName, prefix(0).toString)
+        var cacheChars: String = prefix(0).toString
+        if (prefix.length > 1) {
+            cacheChars += prefix(1).toString
+        }
+        val cacheId: String = cacheIdFormat.format(prefixName, cacheChars)
         val multiWord: Boolean = wordsRegex.findFirstIn(prefix) != None
         getWith(table, field, str => str.startsWith(prefix), cacheFilter, cacheId, multiWord)
     }
 
     def getWithSuffix(table: String, field: String, suffix: String): List[Map[String, String]] = {
         val cacheFilter: String => Boolean = str => str(str.length - 1) == suffix(suffix.length - 1)
-        val cacheId: String = cacheIdFormat.format(suffixName, suffix(suffix.length - 1).toString)
+
+        var cacheChars: String = suffix(suffix.length - 1).toString
+        if (suffix.length > 1) {
+            cacheChars = suffix(suffix.length - 2).toString + cacheChars
+        }
+        val cacheId: String = cacheIdFormat.format(suffixName, cacheChars)
+
         val multiWord: Boolean = wordsRegex.findFirstIn(suffix) != None
         getWith(table, field, str => str.endsWith(suffix), cacheFilter, cacheId, multiWord)
     }
@@ -148,10 +167,10 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     def getWithContains(table: String, field: String, substring: String): List[Map[String, String]] = {
-        val maxChar: Char = Utils.getMaxFreqLetter(substring, statsManager, maxFreqCutoff)
-        val cacheFilter: String => Boolean = str => str.contains(maxChar)
+        val cacheWord: String = containsCacheName(substring)
+        val cacheFilter: String => Boolean = str => str.contains(cacheWord)
         val filter: String => Boolean = str => str.contains(substring)
-        val cacheId: String = cacheIdFormat.format(regexName, maxChar)
+        val cacheId: String = cacheIdFormat.format(regexName, cacheWord)
         val multiWord: Boolean = wordsRegex.findFirstIn(substring) != None
         getWith(table, field, filter, cacheFilter, cacheId, multiWord)
     }
@@ -292,27 +311,42 @@ class RedisDatabase(_host: String, _port: Int) {
                               .keys.toList
         val prefixAdds = prefixes.map(name => (() => redisClient.sadd(name, id)))
 
+        val prefixDoubles = newData.filter(e => e._2.length > 1)
+                                   .map(e => (e._1, e._2(0).toString + e._2(1).toString))
+                                   .map(e => (cacheNameFormat.format(table, e._1, prefixName + ":" + e._2), e._2))
+                                   .filter(e => cacheManager.get(e._1) != None)
+                                   .keys.toList
+        val prefixDoubleAdds = prefixDoubles.map(name => (() => redisClient.sadd(name, id)))
+
         val suffixes = newData.map(e => (e._1, e._2(e._2.length - 1)))
                               .map(e => (cacheNameFormat.format(table, e._1, suffixName + ":" + e._2), e._2))
                               .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val suffixAdds = suffixes.map(name => (() => redisClient.sadd(name, id)))
 
+        val suffixDoubles = newData.filter(e => e._2.length > 1)
+                                   .map(e => (e._1, e._2(e._2.length - 2).toString + e._2(e._2.length - 1).toString))
+                                   .map(e => (cacheNameFormat.format(table, e._1, suffixName + ":" + e._2), e._2))
+                                   .filter(e => cacheManager.get(e._1) != None)
+                                   .keys.toList
+        val suffixDoubleAdds = suffixDoubles.map(name => (() => redisClient.sadd(name, id)))
+
         val containsCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
             val name: String = cacheNameFormat.format(table, field, regexName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
-            val fieldData: String = newData(field).substring(1, newData(field).length - 1)
             for (cacheName <- cacheNames) {
-                if (fieldData.contains(cacheName(cacheName.length - 1))) {
+                val tokens: Array[String] = cacheName.split(":")
+                if (newData(field).contains(tokens(tokens.length - 1))) {
                     containsCaches += cacheName
                 }
             }
         }
 
         val containsAdds = containsCaches.map(name => (() => redisClient.sadd(name, id)))
-        val addExec = redisClient.pipelineNoMulti(prefixAdds ++ suffixAdds ++ containsAdds)
-        addExec.map(a => Await.result(a.future, timeout * 5))
+        val addExec = redisClient.pipelineNoMulti(prefixAdds ++ prefixDoubleAdds ++ suffixAdds ++
+                                                  suffixDoubleAdds ++ containsAdds)
+        addExec.map(a => Await.result(a.future, timeout * 10))
                .map(_.asInstanceOf[Option[Long]])
                .map(_.get)
     }
@@ -335,18 +369,41 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def findRegexCacheName(regex: String): String = {
         val len: Int = regex.length
-        if (Utils.isLetter(regex(0))) {
+        if (len == 1 && Utils.isLetter(regex(0))) {
             cacheIdFormat.format(prefixName, regex(0).toString)
-        } else if (regex(0) == '^' && Utils.isLetter(regex(1))) {
-            cacheIdFormat.format(prefixName, regex(1).toString)
-        } else if (Utils.isLetter(regex(len - 1))) {
+        } else if (len > 1 && Utils.isLetter(regex(0)) && Utils.isLetter(regex(1))) {
+            cacheIdFormat.format(prefixName, regex(0).toString + regex(1).toString)
+        } else if (len > 1 && regex(0) == '^' && Utils.isLetter(regex(1))) {
+            if (len > 2 && Utils.isLetter(regex(2))) {
+                cacheIdFormat.format(prefixName, regex(1).toString + regex(2).toString)
+            } else {
+                cacheIdFormat.format(prefixName, regex(1).toString)
+            }
+        } else if (len == 1 && Utils.isLetter(regex(len - 1))) {
             cacheIdFormat.format(suffixName, regex(len - 1).toString)
-        } else if (regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
-            cacheIdFormat.format(suffixName, regex(len - 2).toString)
+        } else if (len > 1 && Utils.isLetter(regex(len - 1)) && Utils.isLetter(regex(len - 2))) {
+            cacheIdFormat.format(suffixName, regex(len - 2).toString + regex(len - 1).toString)
+        } else if (len > 1 && regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
+            if (len > 2 && Utils.isLetter(regex(len - 3))) {
+                cacheIdFormat.format(suffixName, regex(len - 2).toString + regex(len - 1).toString)
+            } else {
+                cacheIdFormat.format(suffixName, regex(len - 2).toString)
+            }
         } else {
             val maxChar: Char = Utils.getMaxFreqLetter(regex, statsManager, maxFreqCutoff)
             cacheIdFormat.format(regexName, maxChar.toString)
         }
+    }
+
+    // We choose the first non-stopword to cache
+    private def containsCacheName(substring: String): String = {
+        val tokens: Array[String] = substring.split(" ")
+        for (token <- tokens) {
+            if (!stopwords.words.contains(token)) {
+                return token
+            }
+        }
+        return substring
     }
 
 }
