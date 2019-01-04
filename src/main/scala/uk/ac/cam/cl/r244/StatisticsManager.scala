@@ -44,15 +44,30 @@ class StatisticsManager {
     private val tableCounts: ConcurrentHashMap[String, AtomicInteger] = new ConcurrentHashMap[String, AtomicInteger]()
 
     def getPrefixFreq(c: Char): Double = {
-        prefixFreq(charToIndex(c))
+        val index: Int = charToIndex(c)
+        if (index < 0 || index >= prefixFreq.length) {
+            0
+        } else {
+            prefixFreq(index)
+        }
     }
 
     def getSuffixFreq(c: Char): Double = {
-        suffixFreq(charToIndex(c))
+        val index: Int = charToIndex(c)
+        if (index < 0 || index >= suffixFreq.length) {
+            0
+        } else {
+            suffixFreq(index)
+        }
     }
 
     def getContainsFreq(c: Char): Double = {
-        containsFreq(charToIndex(c))
+        val index: Int = charToIndex(c)
+        if (index < 0 || index >= containsFreq.length) {
+            0
+        } else {
+            containsFreq(index)
+        }
     }
 
     def addCountToTable(table: String): Int = {

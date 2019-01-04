@@ -27,7 +27,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val cacheIdFormat: String = "%s:%s"
     private val cacheNameFormat: String = "%s:%s:%s"
     private val wordsRegex: Regex = "\\s+".r
-    private val t: Int = 1000
+    private val t: Int = 5000
     private val timeout: Duration = Duration(t, "millis")
     private val setRemoveThreshold: Int = 100
     private val maxFreqCutoff: Int = 256
@@ -38,7 +38,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val editDistName: String = "editdist"
     private val queryTypes: List[String] = List(prefixName, suffixName, regexName)
 
-    val sparkConf = new SparkConf().setMaster("local")
+    val sparkConf = new SparkConf().setMaster("local[4]")
             .setAppName("spark-redis-db")
             .set("spark.redis.host", host)
             .set("spark.redis.port", port.toString)
@@ -176,7 +176,7 @@ class RedisDatabase(_host: String, _port: Int) {
                        .filter(entry => filter(entry._2)).count()
             } else {
                 var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
+                cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                                    .filter(entry => cacheFilter(entry._2))
                 
                 // Add indices to the cache asychronously
@@ -206,7 +206,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
                 hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                       .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
+                       .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                        .filter(entry => filter(entry._2)).count()
             }
         }
@@ -234,7 +234,7 @@ class RedisDatabase(_host: String, _port: Int) {
                              .collect().toList
             } else {
                 var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
+                cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                                    .filter(entry => cacheFilter(entry._2))
 
                 // Add indices to the cache asychronously
@@ -258,7 +258,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
             val hashRDD = sparkContext.fromRedisHash(indices)
             ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                         .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toList)
+                         .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                          .filter(entry => filter(entry._2))
                          .map(entry => entry._1.split(":")(valueIndex))
                          .collect().toList
