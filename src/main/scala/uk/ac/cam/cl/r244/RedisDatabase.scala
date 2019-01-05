@@ -27,11 +27,8 @@ class RedisDatabase(_host: String, _port: Int) {
     private val tableQueryFormat: String = "%s:*"
     private val cacheIdFormat: String = "%s:%s"
     private val cacheNameFormat: String = "%s:%s:%s"
-    private val wordsRegex: Regex = "\\s+".r
     private val t: Int = 5000
     private val timeout: Duration = Duration(t, "millis")
-    private val setRemoveThreshold: Int = 100
-    private val maxFreqCutoff: Int = 256
 
     val sparkConf = new SparkConf().setMaster("local[4]")
             .setAppName("spark-redis-db")
