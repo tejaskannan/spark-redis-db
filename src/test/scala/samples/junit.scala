@@ -244,13 +244,13 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val countContains0: Long = db.countWithContains(table, firstName, "ame")
+        val countContains0: Long = db.countWithContains(table, firstName, "ame", false)
         assertEquals(2, countContains0)
 
-        val countContains1: Long = db.countWithContains(table, lastName, "ite")
+        val countContains1: Long = db.countWithContains(table, lastName, "ite", false)
         assertEquals(1, countContains1)
 
-        val countContains2: Long = db.countWithContains(table, firstName, "hez")
+        val countContains2: Long = db.countWithContains(table, firstName, "hez", false)
         assertEquals(0, countContains2)
 
         db.delete(table, id0)
@@ -274,14 +274,14 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
 
-        val getContains0: List[Map[String, String]] = db.getWithContains(table, firstName, "ame")
+        val getContains0: List[Map[String, String]] = db.getWithContains(table, firstName, "ame", false)
         listMapEquals(dataLst, getContains0)
 
-        val getContains1: List[Map[String, String]] = db.getWithContains(table, lastName, "ite")
+        val getContains1: List[Map[String, String]] = db.getWithContains(table, lastName, "ite", false)
         assertEquals(1, getContains1.size)
         mapEquals(data0, getContains1(0))
 
-        val getContains2: List[Map[String, String]] = db.getWithContains(table, firstName, "hez")
+        val getContains2: List[Map[String, String]] = db.getWithContains(table, firstName, "hez", false)
         assertTrue(getContains2.isEmpty)
 
         db.delete(table, id0)

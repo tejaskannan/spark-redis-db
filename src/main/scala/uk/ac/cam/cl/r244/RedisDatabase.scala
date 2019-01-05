@@ -35,9 +35,9 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private val prefixName: String = "prefix"
     private val suffixName: String = "suffix"
-    private val regexName: String = "contains"
+    private val containsName: String = "contains"
     private val editDistName: String = "editdist"
-    private val queryTypes: List[String] = List(prefixName, suffixName, regexName)
+    private val queryTypes: List[String] = List(prefixName, suffixName, containsName)
 
     val sparkConf = new SparkConf().setMaster("local[4]")
             .setAppName("spark-redis-db")
@@ -116,14 +116,14 @@ class RedisDatabase(_host: String, _port: Int) {
                   cacheId, false, wordsRegex.findFirstIn(target) != None)
     }
 
-    def countWithContains(table: String, field: String, substring: String): Long = {
-        val cacheWord: String = containsCacheName(substring)
-        val cacheFilter: String => Boolean = str => str.contains(cacheWord)
-        val filter: String => Boolean = str => str.contains(substring)
-        val cacheId: String = cacheIdFormat.format(regexName, cacheWord)
-        val multiWord: Boolean = wordsRegex.findFirstIn(substring) != None
-        countWith(table, field, filter, cacheFilter, cacheId, substring.length == 1, multiWord)
-    }
+    // def countWithContains(table: String, field: String, substring: String): Long = {
+    //     val cacheWord: String = containsCacheName(substring)
+    //     val cacheFilter: String => Boolean = str => str.contains(cacheWord)
+    //     val filter: String => Boolean = str => str.contains(substring)
+    //     val cacheId: String = cacheIdFormat.format(containsName, cacheWord)
+    //     val multiWord: Boolean = wordsRegex.findFirstIn(substring) != None
+    //     countWith(table, field, filter, cacheFilter, cacheId, substring.length == 1, multiWord)
+    // }
 
     def getWithPrefix(table: String, field: String, prefix: String): List[Map[String, String]] = {
         val cacheFilter: String => Boolean = str => str(0) == prefix(0)
@@ -166,13 +166,94 @@ class RedisDatabase(_host: String, _port: Int) {
         getWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter, cacheId, multiWord)
     }
 
-    def getWithContains(table: String, field: String, substring: String): List[Map[String, String]] = {
-        val cacheWord: String = containsCacheName(substring)
-        val cacheFilter: String => Boolean = str => str.contains(cacheWord)
-        val filter: String => Boolean = str => str.contains(substring)
-        val cacheId: String = cacheIdFormat.format(regexName, cacheWord)
-        val multiWord: Boolean = wordsRegex.findFirstIn(substring) != None
-        getWith(table, field, filter, cacheFilter, cacheId, multiWord)
+    // def getWithContains(table: String, field: String, substring: String): List[Map[String, String]] = {
+    //     val cacheWord: String = containsCacheName(substring)
+    //     val cacheFilter: String => Boolean = str => str.contains(cacheWord)
+    //     val filter: String => Boolean = str => str.contains(substring)
+    //     val cacheId: String = cacheIdFormat.format(containsName, cacheWord)
+    //     val multiWord: Boolean = wordsRegex.findFirstIn(substring) != None
+    //     getWith(table, field, filter, cacheFilter, cacheId, multiWord)
+    // }
+
+    def countWithContains(table: String, field: String, substring: String,
+                          multiWord: Boolean): Long = {
+        val cacheId: String = cacheIdFormat.format(containsName, substring)
+        val cacheName: String = createCacheName(table, field, cacheId)
+        val fieldPrefix: String = keyFormat.format(field, "")
+
+        statsManager.addRead()
+
+        val cache: Option[String] = cacheManager.get(cacheName)
+        if (cache == None) {
+            var hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
+            hashRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+
+            if (!multiWord) {
+                hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
+            }
+
+            hashRDD = hashRDD.filter(entry => entry._2.contains(substring))
+
+            if (!multiWord) {
+                // Add indices to the cache asychronously
+                Future {
+                    sparkContext.toRedisSET(hashRDD.map(entry => entry._1.split(":")(1)),
+                                            cacheName)
+                    cacheManager.add(cacheName, deleteCache)
+                }
+            }
+            hashRDD.count()
+        } else {
+            val count: Long = redisClient.scard(cache.get).get
+            statsManager.addCacheHit(cache.get, table, count.toInt)
+            count
+        }
+    }
+
+    def getWithContains(table: String, field: String, substring: String,
+                        multiWord: Boolean): List[Map[String, String]] = {
+        val cacheId: String = cacheIdFormat.format(containsName, substring)
+        val cacheName: String = createCacheName(table, field, cacheId)
+        val fieldPrefix: String = keyFormat.format(field, "")
+
+        statsManager.addRead()
+
+        var ids: List[String] = List()
+
+        val cache: Option[String] = cacheManager.get(cacheName)
+        if (cache == None) {
+            var hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
+            hashRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+
+            if (!multiWord) {
+                hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
+            }
+
+            val idsRDD = hashRDD.filter(entry => entry._2.contains(substring))
+                                .map(entry => entry._1.split(":")(1))
+
+            if (!multiWord) {
+                // Add indices to the cache asychronously
+                Future {
+                    sparkContext.toRedisSET(idsRDD, cacheName)
+                    cacheManager.add(cacheName, deleteCache)
+                }
+            }
+
+            ids = idsRDD.collect().toList
+        } else {
+            ids = redisClient.smembers[String](cache.get).get
+                             .map(x => keyFormat.format(table, x.get))
+                             .toList
+        }
+
+        val queries = ids.map(id => keyFormat.format(table, id))
+                         .map(key => (() => redisClient.hgetall[String, String](key)))
+
+        val queryExec = redisClient.pipelineNoMulti(queries)
+        queryExec.map(a => Await.result(a.future, timeout))
+                 .map(_.asInstanceOf[Option[Map[String, String]]])
+                 .map(m => sanitizeData(m.get))
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -333,7 +414,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
         val containsCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
-            val name: String = cacheNameFormat.format(table, field, regexName)
+            val name: String = cacheNameFormat.format(table, field, containsName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
             for (cacheName <- cacheNames) {
                 val tokens: Array[String] = cacheName.split(":")
@@ -397,7 +478,7 @@ class RedisDatabase(_host: String, _port: Int) {
                 cacheIdFormat.format(suffixName, regex(len - 2).toString)
             }
         } else {
-            cacheIdFormat.format(regexName, Utils.getLongestCharSubstring(regex))
+            cacheIdFormat.format(containsName, Utils.getLongestCharSubstring(regex))
         }
     }
 
@@ -406,11 +487,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val tokens: Array[String] = substring.split(" ")
         for (token <- tokens) {
             if (!stopwords.words.contains(token)) {
-                if (token.length > 5) {
-                    return token.substring(1, token.length)
-                } else {
-                    return token
-                }
+                return token
             }
         }
         return substring
