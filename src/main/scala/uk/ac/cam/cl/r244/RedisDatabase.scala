@@ -33,13 +33,6 @@ class RedisDatabase(_host: String, _port: Int) {
     private val setRemoveThreshold: Int = 100
     private val maxFreqCutoff: Int = 256
 
-    private val prefixName: String = "prefix"
-    private val suffixName: String = "suffix"
-    private val containsName: String = "contains"
-    private val editDistName: String = "editdist"
-    private val swName: String = "sw"
-    private val queryTypes: List[String] = List(prefixName, suffixName, containsName)
-
     val sparkConf = new SparkConf().setMaster("local[4]")
             .setAppName("spark-redis-db")
             .set("spark.redis.host", host)
@@ -84,7 +77,7 @@ class RedisDatabase(_host: String, _port: Int) {
         if (prefix.length > 1) {
             cacheChars += prefix(1).toString
         }
-        val cacheId: String = cacheIdFormat.format(prefixName, cacheChars)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.prefixName, cacheChars)
         countWith(table, field, str => str.startsWith(prefix), cacheFilter,
                   cacheId, multiWord)
     }
@@ -96,7 +89,7 @@ class RedisDatabase(_host: String, _port: Int) {
         if (suffix.length > 1) {
             cacheChars = suffix(suffix.length - 2).toString + cacheChars
         }
-        val cacheId: String = cacheIdFormat.format(suffixName, cacheChars)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.suffixName, cacheChars)
         countWith(table, field, str => str.endsWith(suffix), cacheFilter,
                   cacheId, multiWord)
     }
@@ -114,7 +107,7 @@ class RedisDatabase(_host: String, _port: Int) {
                               dist: Int, multiWord: Boolean = false): Long = {
         val minLength: Int = Utils.max(target.length - dist, 0)
         val maxLength: Int = target.length + dist
-        val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
+        val cacheId: String = cacheIdFormat.format(QueryTypes.editDistName, keyFormat.format(minLength.toString, maxLength.toString))
         val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
         countWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter,
                   cacheId, multiWord)
@@ -127,7 +120,7 @@ class RedisDatabase(_host: String, _port: Int) {
         if (prefix.length > 1) {
             cacheChars += prefix(1).toString
         }
-        val cacheId: String = cacheIdFormat.format(prefixName, cacheChars)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.prefixName, cacheChars)
         getWith(table, field, str => str.startsWith(prefix), cacheFilter, cacheId, multiWord)
     }
 
@@ -139,7 +132,7 @@ class RedisDatabase(_host: String, _port: Int) {
         if (suffix.length > 1) {
             cacheChars = suffix(suffix.length - 2).toString + cacheChars
         }
-        val cacheId: String = cacheIdFormat.format(suffixName, cacheChars)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.suffixName, cacheChars)
         getWith(table, field, str => str.endsWith(suffix), cacheFilter, cacheId, multiWord)
     }
 
@@ -156,7 +149,7 @@ class RedisDatabase(_host: String, _port: Int) {
                             dist: Int, multiWord: Boolean = false): List[Map[String, String]] = {
         val minLength: Int = Utils.max(target.length - dist, 0)
         val maxLength: Int = target.length + dist
-        val cacheId: String = cacheIdFormat.format(editDistName, keyFormat.format(minLength.toString, maxLength.toString))
+        val cacheId: String = cacheIdFormat.format(QueryTypes.editDistName, keyFormat.format(minLength.toString, maxLength.toString))
         val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
         getWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter,
                 cacheId, multiWord)
@@ -164,28 +157,28 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def countWithContains(table: String, field: String, substring: String,
                           multiWord: Boolean = false): Long = {
-        val cacheId: String = cacheIdFormat.format(containsName, substring)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.containsName, substring)
         val filter: String => Boolean = str => str.contains(substring)
         countWithExact(table, field, filter, cacheId, multiWord)
     }
 
     def getWithContains(table: String, field: String, substring: String,
                         multiWord: Boolean = false): List[Map[String, String]] = {
-        val cacheId: String = cacheIdFormat.format(containsName, substring)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.containsName, substring)
         val filter: String => Boolean = str => str.contains(substring)
         getWithExact(table, field, filter, cacheId, multiWord)
     }
 
     def countWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
                                multiWord: Boolean = false): Long = {
-        val cacheId: String = cacheIdFormat.format(swName, target + minScore.toString)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.swName, cacheIdFormat.format(target, minScore.toString))
         val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
         countWithExact(table, field, filter, cacheId, multiWord)
     }
 
     def getWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
                              multiWord: Boolean = false): List[Map[String, String]] = {
-        val cacheId: String = cacheIdFormat.format(swName, target + minScore.toString)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.swName, cacheIdFormat.format(target, minScore.toString))
         val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
         getWithExact(table, field, filter, cacheId, multiWord)
     }
@@ -221,9 +214,27 @@ class RedisDatabase(_host: String, _port: Int) {
             }
             count
         } else {
-            val count: Long = redisClient.scard(cache.get).get
-            statsManager.addCacheHit(cache.get, table, count.toInt)
-            count
+            if (cacheName == cache.get) {
+                val count: Long = redisClient.scard(cache.get).get
+                statsManager.addCacheHit(cache.get, table, count.toInt)
+                count
+            } else {
+                // We are in a case where a smith-waterman score is less than the current
+                // query, so we can reuse those results here
+                val fullCacheName = cache.get
+                // We fetch the indices into memory as the set of indices is small
+                val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
+                                                        .map(x => keyFormat.format(table, x.get))
+                                                        .toArray
+
+                statsManager.addCacheHit(fullCacheName, table, indices.size)
+
+                val hashRDD = sparkContext.fromRedisHash(indices)
+                hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                       .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
+                       .filter(entry => filter(entry._2)).count()
+            }
+
         }
     }
 
@@ -259,9 +270,28 @@ class RedisDatabase(_host: String, _port: Int) {
             }
 
         } else {
-            ids = redisClient.smembers[String](cache.get).get
+            if (cacheName == cache.get) {
+               ids = redisClient.smembers[String](cache.get).get
                              .map(x => keyFormat.format(table, x.get))
-                             .toList
+                             .toList 
+            } else {
+                // We are in a case where there is a cache for Smith-Waterman with a lower
+                // minimum score than the one currently being queried
+                val fullCacheName = cache.get
+                val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
+                                                        .map(x => keyFormat.format(table, x.get))
+                                                        .toArray
+
+                statsManager.addCacheHit(fullCacheName, table, indices.size)
+
+                val hashRDD = sparkContext.fromRedisHash(indices)
+                ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                             .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
+                             .filter(entry => filter(entry._2))
+                             .map(entry => entry._1.split(":")(1))
+                             .collect().toList
+            }
+            
         }
 
         val queries = ids.map(id => keyFormat.format(table, id))
@@ -311,7 +341,7 @@ class RedisDatabase(_host: String, _port: Int) {
             }   
         } else {
             // If the query exactly matches a cache, we can avoid using Spark
-            if (fullCacheName == cache.get && fullCacheName.split(":")(2) != editDistName) {
+            if (fullCacheName == cache.get && fullCacheName.split(":")(2) != QueryTypes.editDistName) {
                 val count: Long = redisClient.scard(fullCacheName).get
                 statsManager.addCacheHit(fullCacheName, table, count.toInt)
                 count
@@ -409,34 +439,34 @@ class RedisDatabase(_host: String, _port: Int) {
         }
 
         val prefixes = newData.map(e => (e._1, e._2(0)))
-                              .map(e => (cacheNameFormat.format(table, e._1, prefixName + ":" + e._2), e._2))
+                              .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.prefixName + ":" + e._2), e._2))
                               .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val prefixAdds = prefixes.map(name => (() => redisClient.sadd(name, id)))
 
         val prefixDoubles = newData.filter(e => e._2.length > 1)
                                    .map(e => (e._1, e._2(0).toString + e._2(1).toString))
-                                   .map(e => (cacheNameFormat.format(table, e._1, prefixName + ":" + e._2), e._2))
+                                   .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.prefixName + ":" + e._2), e._2))
                                    .filter(e => cacheManager.get(e._1) != None)
                                    .keys.toList
         val prefixDoubleAdds = prefixDoubles.map(name => (() => redisClient.sadd(name, id)))
 
         val suffixes = newData.map(e => (e._1, e._2(e._2.length - 1)))
-                              .map(e => (cacheNameFormat.format(table, e._1, suffixName + ":" + e._2), e._2))
+                              .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.suffixName + ":" + e._2), e._2))
                               .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val suffixAdds = suffixes.map(name => (() => redisClient.sadd(name, id)))
 
         val suffixDoubles = newData.filter(e => e._2.length > 1)
                                    .map(e => (e._1, e._2(e._2.length - 2).toString + e._2(e._2.length - 1).toString))
-                                   .map(e => (cacheNameFormat.format(table, e._1, suffixName + ":" + e._2), e._2))
+                                   .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.suffixName + ":" + e._2), e._2))
                                    .filter(e => cacheManager.get(e._1) != None)
                                    .keys.toList
         val suffixDoubleAdds = suffixDoubles.map(name => (() => redisClient.sadd(name, id)))
 
         val containsCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
-            val name: String = cacheNameFormat.format(table, field, containsName)
+            val name: String = cacheNameFormat.format(table, field, QueryTypes.containsName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
             for (cacheName <- cacheNames) {
                 val tokens: Array[String] = cacheName.split(":")
@@ -449,7 +479,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
         val editDistCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
-            val name: String = cacheNameFormat.format(table, field, editDistName)
+            val name: String = cacheNameFormat.format(table, field, QueryTypes.editDistName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
             for (cacheName <- cacheNames) {
                 val tokens: Array[String] = cacheName.split(":")
@@ -462,8 +492,24 @@ class RedisDatabase(_host: String, _port: Int) {
         }
         val editDistAdds = editDistCaches.map(name => (() => redisClient.sadd(name, id)))
 
+        val swCaches = new ListBuffer[String]()
+        for (field <- fieldsToUpdate) {
+            val name: String = cacheNameFormat.format(table, field, QueryTypes.swName)
+            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
+            for (cacheName <- cacheNames) {
+                val tokens: Array[String] = cacheName.split(":")
+                val target: String = tokens(tokens.length - 2)
+                val minScore: Int = tokens(tokens.length - 1).toInt
+                if (Utils.smithWatermanLinear(target, newData(field), minScore)) {
+                    swCaches += cacheName
+                }
+            }
+        }
+        val swAdds = swCaches.map(name => (() => redisClient.sadd(name, id)))
+
         val addExec = redisClient.pipelineNoMulti(prefixAdds ++ prefixDoubleAdds ++ suffixAdds ++
-                                                  suffixDoubleAdds ++ containsAdds ++ editDistAdds)
+                                                  suffixDoubleAdds ++ containsAdds ++ editDistAdds ++
+                                                  swAdds)
         addExec.map(a => Await.result(a.future, timeout * 10))
                .map(_.asInstanceOf[Option[Long]])
                .map(_.get)
@@ -489,18 +535,18 @@ class RedisDatabase(_host: String, _port: Int) {
         val len: Int = regex.length
         if (len > 1 && regex(0) == '^' && Utils.isLetter(regex(1))) {
             if (len > 2 && Utils.isLetter(regex(2))) {
-                cacheIdFormat.format(prefixName, regex(1).toString + regex(2).toString)
+                cacheIdFormat.format(QueryTypes.prefixName, regex(1).toString + regex(2).toString)
             } else {
-                cacheIdFormat.format(prefixName, regex(1).toString)
+                cacheIdFormat.format(QueryTypes.prefixName, regex(1).toString)
             }
         } else if (len > 1 && regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
             if (len > 2 && Utils.isLetter(regex(len - 3))) {
-                cacheIdFormat.format(suffixName, regex(len - 2).toString + regex(len - 1).toString)
+                cacheIdFormat.format(QueryTypes.suffixName, regex(len - 2).toString + regex(len - 1).toString)
             } else {
-                cacheIdFormat.format(suffixName, regex(len - 2).toString)
+                cacheIdFormat.format(QueryTypes.suffixName, regex(len - 2).toString)
             }
         } else {
-            cacheIdFormat.format(containsName, Utils.getLongestCharSubstring(regex))
+            cacheIdFormat.format(QueryTypes.containsName, Utils.getLongestCharSubstring(regex))
         }
     }
 

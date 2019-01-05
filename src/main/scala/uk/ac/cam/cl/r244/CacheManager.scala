@@ -18,9 +18,9 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
             Some(key)
         } else {
             val tokens: Array[String] = key.split(splitToken)
-            if (tokens.length <= 4) {
-                None
-            } else {
+            val queryName = tokens(2)
+
+            if (queryName == QueryTypes.editDistName) {
                 val min: Int = tokens(3).toInt
                 val max: Int = tokens(4).toInt
                 val base: String = cacheNameFormat.format(tokens(0), tokens(1), tokens(2))
@@ -32,6 +32,20 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
                         }
                     }
                 }
+                None
+            } else if (queryName == QueryTypes.swName) {
+                val minScore: Int = tokens(tokens.length - 1).toInt
+                val base: String = cacheNameFormat.format(tokens(0), tokens(1), tokens(2))
+                for (name <- cache.keys) {
+                    if (name.startsWith(base)) {
+                        val nameTokens: Array[String] = name.split(splitToken)
+                        if (nameTokens(nameTokens.length - 1).toInt < minScore) {
+                            return Some(name)
+                        }
+                    }
+                }
+                None
+            } else {
                 None
             }
         }        
