@@ -37,6 +37,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val suffixName: String = "suffix"
     private val containsName: String = "contains"
     private val editDistName: String = "editdist"
+    private val swName: String = "sw"
     private val queryTypes: List[String] = List(prefixName, suffixName, containsName)
 
     val sparkConf = new SparkConf().setMaster("local[4]")
@@ -161,10 +162,37 @@ class RedisDatabase(_host: String, _port: Int) {
                 cacheId, multiWord)
     }
 
-
     def countWithContains(table: String, field: String, substring: String,
                           multiWord: Boolean = false): Long = {
         val cacheId: String = cacheIdFormat.format(containsName, substring)
+        val filter: String => Boolean = str => str.contains(substring)
+        countWithExact(table, field, filter, cacheId, multiWord)
+    }
+
+    def getWithContains(table: String, field: String, substring: String,
+                        multiWord: Boolean = false): List[Map[String, String]] = {
+        val cacheId: String = cacheIdFormat.format(containsName, substring)
+        val filter: String => Boolean = str => str.contains(substring)
+        getWithExact(table, field, filter, cacheId, multiWord)
+    }
+
+    def countWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
+                               multiWord: Boolean = false): Long = {
+        val cacheId: String = cacheIdFormat.format(swName, target + minScore.toString)
+        val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
+        countWithExact(table, field, filter, cacheId, multiWord)
+    }
+
+    def getWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
+                             multiWord: Boolean = false): List[Map[String, String]] = {
+        val cacheId: String = cacheIdFormat.format(swName, target + minScore.toString)
+        val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
+        getWithExact(table, field, filter, cacheId, multiWord)
+    }
+
+
+    private def countWithExact(table: String, field: String, filter: String => Boolean,
+                               cacheId: String, multiWord: Boolean): Long = {
         val cacheName: String = createCacheName(table, field, cacheId)
         val fieldPrefix: String = keyFormat.format(field, "")
 
@@ -179,9 +207,11 @@ class RedisDatabase(_host: String, _port: Int) {
                 hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
             }
 
-            hashRDD = hashRDD.filter(entry => entry._2.contains(substring))
+            hashRDD = hashRDD.filter(entry => filter(entry._2))
 
-            if (!multiWord) {
+            val count = hashRDD.count()
+
+            if (!multiWord && count > 0) {
                 // Add indices to the cache asychronously
                 Future {
                     sparkContext.toRedisSET(hashRDD.map(entry => entry._1.split(":")(1)),
@@ -189,7 +219,7 @@ class RedisDatabase(_host: String, _port: Int) {
                     cacheManager.add(cacheName, deleteCache)
                 }
             }
-            hashRDD.count()
+            count
         } else {
             val count: Long = redisClient.scard(cache.get).get
             statsManager.addCacheHit(cache.get, table, count.toInt)
@@ -197,9 +227,8 @@ class RedisDatabase(_host: String, _port: Int) {
         }
     }
 
-    def getWithContains(table: String, field: String, substring: String,
-                        multiWord: Boolean = false): List[Map[String, String]] = {
-        val cacheId: String = cacheIdFormat.format(containsName, substring)
+    private def getWithExact(table: String, field: String, filter: String => Boolean,
+                             cacheId: String, multiWord: Boolean): List[Map[String, String]] = {
         val cacheName: String = createCacheName(table, field, cacheId)
         val fieldPrefix: String = keyFormat.format(field, "")
 
@@ -216,10 +245,12 @@ class RedisDatabase(_host: String, _port: Int) {
                 hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
             }
 
-            val idsRDD = hashRDD.filter(entry => entry._2.contains(substring))
+            val idsRDD = hashRDD.filter(entry => filter(entry._2))
                                 .map(entry => entry._1.split(":")(1))
 
-            if (!multiWord) {
+            ids = idsRDD.collect().toList
+
+            if (!multiWord && ids.size > 0) {
                 // Add indices to the cache asychronously
                 Future {
                     sparkContext.toRedisSET(idsRDD, cacheName)
@@ -227,7 +258,6 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
 
-            ids = idsRDD.collect().toList
         } else {
             ids = redisClient.smembers[String](cache.get).get
                              .map(x => keyFormat.format(table, x.get))
@@ -266,14 +296,18 @@ class RedisDatabase(_host: String, _port: Int) {
                 cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                                    .filter(entry => cacheFilter(entry._2))
                 
-                // Add indices to the cache asychronously
-                Future {
-                    sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
-                                                  fullCacheName)
-                    cacheManager.add(fullCacheName, deleteCache)
+                val count = cacheRDD.filter(entry => filter(entry._2)).count()
+
+                if (count > 0) {
+                    // Add indices to the cache asychronously
+                    Future {
+                        sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
+                                                      fullCacheName)
+                        cacheManager.add(fullCacheName, deleteCache)
+                    }
                 }
 
-                cacheRDD.filter(entry => filter(entry._2)).count()
+                count
             }   
         } else {
             // If the query exactly matches a cache, we can avoid using Spark
@@ -323,16 +357,18 @@ class RedisDatabase(_host: String, _port: Int) {
                 cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                                    .filter(entry => cacheFilter(entry._2))
 
-                // Add indices to the cache asychronously
-                Future {
-                    sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
-                                            fullCacheName)
-                    cacheManager.add(fullCacheName, deleteCache)
-                }
-
                 ids = cacheRDD.filter(entry => filter(entry._2))
                               .map(entry => entry._1.split(":")(valueIndex))
                               .collect().toList
+
+                if (ids.size > 0) {
+                    // Add indices to the cache asychronously
+                    Future {
+                        sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
+                                                fullCacheName)
+                        cacheManager.add(fullCacheName, deleteCache)
+                    }
+                }
             }
         } else {
             val fullCacheName = cache.get

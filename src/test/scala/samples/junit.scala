@@ -17,6 +17,7 @@ class AppTest {
     val suffix = "suffix"
     val contains = "contains"
     val editdist = "editdist"
+    val sw = "sw"
 
     var statsManager = new StatisticsManager()
 
@@ -349,6 +350,85 @@ class AppTest {
         db.deleteCache(cacheFormat.format(table, firstName, editdist, "5:7"))
         db.deleteCache(cacheFormat.format(table, lastName, editdist, "2:4"))
     }
+
+    @Test
+    def sparkCountSmithWaterman() {
+        val table = "dna"
+        val field = "seq"
+
+        val id0 = "0"
+        val data0 = Map((field -> "aatcgtcg"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "1"
+        val data1 = Map((field -> "aatcgtag"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val seq = "aacgatc"
+        assertEquals(2, db.countWithSmithWaterman(table, field, seq, 3))
+        assertEquals(1, db.countWithSmithWaterman(table, field, seq, 4))
+        assertEquals(0, db.countWithSmithWaterman(table, field, seq, 7))
+
+        val cache0Name = cacheFormat.format(table, field, sw, seq + "3")
+        val cache1Name = cacheFormat.format(table, field, sw, seq + "4")
+        val cache2Name = cacheFormat.format(table, field, sw, seq + "7")
+        assertTrue(db.redisClient.exists(cache0Name))
+        assertTrue(db.redisClient.exists(cache1Name))
+        assertFalse(db.redisClient.exists(cache2Name))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cache0Name)
+        db.deleteCache(cache1Name)
+        db.deleteCache(cache2Name)
+    }
+
+    @Test
+    def sparkGetSmithWaterman() {
+        val table = "dna"
+        val field = "seq"
+
+        val id0 = "0"
+        val data0 = Map((field -> "aatcgtcg"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "1"
+        val data1 = Map((field -> "aatcgtag"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
+
+        val seq = "aacgatc"
+
+        val get0 = db.getWithSmithWaterman(table, field, seq, 3)
+        assertEquals(2, get0.size)
+        listMapEquals(dataLst, get0)
+
+        val get1 = db.getWithSmithWaterman(table, field, seq, 4)
+        assertEquals(1, get1.size)
+        mapEquals(data0, get1(0))
+
+        val get2 = db.getWithSmithWaterman(table, field, seq, 7)
+        assertEquals(0, get2.size)
+
+        val cache0Name = cacheFormat.format(table, field, sw, seq + "3")
+        val cache1Name = cacheFormat.format(table, field, sw, seq + "4")
+        val cache2Name = cacheFormat.format(table, field, sw, seq + "7")
+        assertTrue(db.redisClient.exists(cache0Name))
+        assertTrue(db.redisClient.exists(cache1Name))
+        assertFalse(db.redisClient.exists(cache2Name))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cache0Name)
+        db.deleteCache(cache1Name)
+        db.deleteCache(cache2Name)
+    }
+
 
 
     @Test
