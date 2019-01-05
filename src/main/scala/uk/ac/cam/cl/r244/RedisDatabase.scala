@@ -27,6 +27,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val tableQueryFormat: String = "%s:*"
     private val cacheIdFormat: String = "%s:%s"
     private val cacheNameFormat: String = "%s:%s:%s"
+    private val keyToken = ":"
     private val t: Int = 5000
     private val timeout: Duration = Duration(t, "millis")
 
@@ -270,7 +271,7 @@ class RedisDatabase(_host: String, _port: Int) {
             if (cacheName == cache.get) {
                ids = redisClient.smembers[String](cache.get).get
                              .map(x => keyFormat.format(table, x.get))
-                             .toList 
+                             .toList
             } else {
                 // We are in a case where there is a cache for Smith-Waterman with a lower
                 // minimum score than the one currently being queried
@@ -288,7 +289,7 @@ class RedisDatabase(_host: String, _port: Int) {
                              .map(entry => entry._1.split(":")(1))
                              .collect().toList
             }
-            
+
         }
 
         val queries = ids.map(id => keyFormat.format(table, id))
@@ -322,7 +323,7 @@ class RedisDatabase(_host: String, _port: Int) {
                 var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
                 cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
                                    .filter(entry => cacheFilter(entry._2))
-                
+
                 val count = cacheRDD.filter(entry => filter(entry._2)).count()
 
                 if (count > 0) {
@@ -335,10 +336,10 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
 
                 count
-            }   
+            }
         } else {
             // If the query exactly matches a cache, we can avoid using Spark
-            if (fullCacheName == cache.get && fullCacheName.split(":")(2) != QueryTypes.editDistName) {
+            if (fullCacheName == cache.get && fullCacheName.split(keyToken)(2) != QueryTypes.editDistName) {
                 val count: Long = redisClient.scard(fullCacheName).get
                 statsManager.addCacheHit(fullCacheName, table, count.toInt)
                 count
@@ -431,32 +432,32 @@ class RedisDatabase(_host: String, _port: Int) {
                              newData: Map[String, String]): List[Long] = {
         val fieldsToUpdate = newData.keys.toList
         for (field <- fieldsToUpdate) {
-            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(table + ":" + field)
+            val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(table + keyToken + field)
             cacheNames.foreach(name => redisClient.srem(name, id))
         }
 
         val prefixes = newData.map(e => (e._1, e._2(0)))
-                              .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.prefixName + ":" + e._2), e._2))
+                              .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.prefixName + keyToken + e._2), e._2))
                               .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val prefixAdds = prefixes.map(name => (() => redisClient.sadd(name, id)))
 
         val prefixDoubles = newData.filter(e => e._2.length > 1)
                                    .map(e => (e._1, e._2(0).toString + e._2(1).toString))
-                                   .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.prefixName + ":" + e._2), e._2))
+                                   .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.prefixName + keyToken + e._2), e._2))
                                    .filter(e => cacheManager.get(e._1) != None)
                                    .keys.toList
         val prefixDoubleAdds = prefixDoubles.map(name => (() => redisClient.sadd(name, id)))
 
         val suffixes = newData.map(e => (e._1, e._2(e._2.length - 1)))
-                              .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.suffixName + ":" + e._2), e._2))
+                              .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.suffixName + keyToken + e._2), e._2))
                               .filter(e => cacheManager.get(e._1) != None)
                               .keys.toList
         val suffixAdds = suffixes.map(name => (() => redisClient.sadd(name, id)))
 
         val suffixDoubles = newData.filter(e => e._2.length > 1)
                                    .map(e => (e._1, e._2(e._2.length - 2).toString + e._2(e._2.length - 1).toString))
-                                   .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.suffixName + ":" + e._2), e._2))
+                                   .map(e => (cacheNameFormat.format(table, e._1, QueryTypes.suffixName + keyToken + e._2), e._2))
                                    .filter(e => cacheManager.get(e._1) != None)
                                    .keys.toList
         val suffixDoubleAdds = suffixDoubles.map(name => (() => redisClient.sadd(name, id)))
@@ -466,7 +467,7 @@ class RedisDatabase(_host: String, _port: Int) {
             val name: String = cacheNameFormat.format(table, field, QueryTypes.containsName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
             for (cacheName <- cacheNames) {
-                val tokens: Array[String] = cacheName.split(":")
+                val tokens: Array[String] = cacheName.split(keyToken)
                 if (newData(field).contains(tokens(tokens.length - 1))) {
                     containsCaches += cacheName
                 }
@@ -479,7 +480,7 @@ class RedisDatabase(_host: String, _port: Int) {
             val name: String = cacheNameFormat.format(table, field, QueryTypes.editDistName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
             for (cacheName <- cacheNames) {
-                val tokens: Array[String] = cacheName.split(":")
+                val tokens: Array[String] = cacheName.split(keyToken)
                 val min: Int = tokens(tokens.length - 2).toInt
                 val max: Int = tokens(tokens.length - 1).toInt
                 if (newData(field).length >= min && newData(field).length <= max) {
@@ -494,7 +495,7 @@ class RedisDatabase(_host: String, _port: Int) {
             val name: String = cacheNameFormat.format(table, field, QueryTypes.swName)
             val cacheNames: List[String] = cacheManager.getCacheNamesWithPrefix(name)
             for (cacheName <- cacheNames) {
-                val tokens: Array[String] = cacheName.split(":")
+                val tokens: Array[String] = cacheName.split(keyToken)
                 val target: String = tokens(tokens.length - 2)
                 val minScore: Int = tokens(tokens.length - 1).toInt
                 if (Utils.smithWatermanLinear(target, newData(field), minScore)) {

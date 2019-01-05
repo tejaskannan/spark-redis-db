@@ -317,7 +317,7 @@ class AppTest {
         db.deleteCache(cache0Name)
         db.deleteCache(cache1Name)
     }
-    
+
     @Test
     def sparkGetContains() {
         val id0 = "28"
@@ -580,7 +580,7 @@ class AppTest {
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.delete(table, id2)        
+        db.delete(table, id2)     
         db.deleteCache(prefixCacheName)
         db.deleteCache(collegeCacheName)
     }
@@ -591,7 +591,7 @@ class AppTest {
 
         db.cacheManager.setSize(2)
 
-        val id0 = "18" 
+        val id0 = "18"
         val data0 = Map((firstName -> "peyton"), (lastName -> "manning"), (college -> "tennessee"))
 
         val id1 = "15"
