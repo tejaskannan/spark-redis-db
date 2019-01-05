@@ -531,6 +531,15 @@ class AppTest {
     }
 
     @Test
+    def smithWaterman() {
+        assertTrue(Utils.smithWatermanLinear("aatcg", "aacg", 3))
+        assertFalse(Utils.smithWatermanLinear("aatcg", "aacg", 4))
+        assertTrue(Utils.smithWatermanLinear("aacgatc", "aatcgatcg", 5))
+        assertTrue(Utils.smithWatermanLinear("aacgatc", "aatcgatcg", 6))
+        assertFalse(Utils.smithWatermanLinear("aacgatc", "aatcgatcg", 7))
+    }
+
+    @Test
     def longestSubstring() {
         assertEquals("abc", Utils.getLongestCharSubstring("abc"))
         assertEquals("abc", Utils.getLongestCharSubstring("abc&k"))

@@ -12,7 +12,7 @@ object Utils {
 
         var maxFreq: Double = 0.0
         var maxChar: Char = '\0'
-        for (i <- start until min2(end, cutoff)) {
+        for (i <- start until min(end, cutoff)) {
             if (isLetter(str(i)) && stats.getContainsFreq(str(i)) > maxFreq) {
                 maxFreq = stats.getContainsFreq(str(i))
                 maxChar = str(i)
@@ -72,6 +72,37 @@ object Utils {
         }
     }
 
+    def smithWatermanLinear(s1: String, s2: String, minScore: Int): Boolean = {
+        var str1 = s1
+        var str2 = s2
+        // We keep an array of size O(s2.length), so we reduce memory here if possible
+        if (s2.length < s1.length) {
+            str1 = s2
+            str2 = s1
+        }
+
+        val gapPenalty = 1
+
+        var a0: Array[Int] = Array.fill[Int](str2.length + 1)(0)
+        var a1: Array[Int] = Array.fill[Int](str2.length + 1)(0)
+        for (i <- 1 to str1.length) {
+            a1(0) = 0
+            val c = str1(i-1)
+            for (j <- 1 to str2.length) {
+                val s = if (c == str2(j-1)) 1 else -1
+                a1(j) = max4(a0(j) - gapPenalty, a1(j-1) - gapPenalty, a0(j-1) + s, 0)
+                if (a1(j) >= minScore) {
+                    return true
+                }
+            }
+
+            val tmp: Array[Int] = a0
+            a0 = a1
+            a1 = tmp
+        }
+        false
+    }
+
     def getLongestCharSubstring(regex: String): String = {
         var index = 0
         while (index < regex.length && !isLetter(regex(index))) {
@@ -112,16 +143,14 @@ object Utils {
     }
 
     private def min3(a: Int, b: Int, c: Int): Int = {
-        if (a < b && a < c) {
-            a
-        } else if (b < a && b < c) {
-            b
-        } else {
-            c
-        }
+        min(min(a, b), c)
     }
 
-    private def min2(a: Int, b: Int): Int = {
+    private def max4(a: Int, b: Int, c: Int, d: Int): Int = {
+        max(max(a, b), max(c, d))
+    }
+
+    private def min(a: Int, b: Int): Int = {
         if (a < b) {
             a
         } else {
