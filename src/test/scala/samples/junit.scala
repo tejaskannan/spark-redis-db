@@ -451,7 +451,7 @@ class AppTest {
 
         Thread.sleep(1000)
 
-        db.countWithRegex(table, firstName, "p.*")
+        db.countWithPrefix(table, firstName, "p")
         db.countWithPrefix(table, lastName, "ma")
 
         val cache0Name = cacheFormat.format(table, firstName, prefix, "p")

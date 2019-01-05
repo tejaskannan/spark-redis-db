@@ -18,13 +18,13 @@ object App {
     val strings: Array[String] = Array("gat[t|a]aca", "gat.+t")
     val rand = new Random(System.currentTimeMillis())
     val trials = args(1).toInt
-    db.countWithPrefix(table, field, "ov")
+    db.countWithPrefix(table, field, "ov", false)
 
     println("Starting Query")
     val t0 = System.currentTimeMillis()
     for (i <- 0 until trials) {
         val str = strings(rand.nextInt(strings.length))
-        println(db.countWithRegex(table, field, str))
+        println(db.countWithRegex(table, field, str, false))
     }
     val elapsed0 = (System.currentTimeMillis() - t0)
     println("Time to Exec Query: " + elapsed0.toString + "ms") 
