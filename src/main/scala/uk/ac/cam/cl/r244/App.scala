@@ -6,27 +6,36 @@ package uk.ac.cam.cl.r244
 
 import scala.collection.immutable.{Map, List}
 import java.util.Random
+import akka.actor.ActorSystem
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.model._
+import akka.http.scaladsl.server.Directives._
+import akka.stream.ActorMaterializer
+import scala.io.StdIn
 
 object App {
 
   def main(args : Array[String]) {
     val db = new RedisDatabase("localhost", 6379)
 
-    val table = "dna"
-    val field = args(0)
+    implicit val system = ActorSystem("my-system")
+    implicit val materializer = ActorMaterializer()
+    // needed for the future flatMap/onComplete in the end
+    implicit val executionContext = system.dispatcher
 
-    val strings: Array[String] = Array("gat[t|a]aca", "gat.+t")
-    val rand = new Random(System.currentTimeMillis())
-    val trials = args(1).toInt
-    db.countWithPrefix(table, field, "ov", false)
+    val route =
+      path("hello") {
+        get {
+          complete(HttpEntity(ContentTypes.`text/html(UTF-8)`, "<h1>Say hello to akka-http</h1>"))
+        }
+      }
 
-    println("Starting Query")
-    val t0 = System.currentTimeMillis()
-    for (i <- 0 until trials) {
-        val str = strings(rand.nextInt(strings.length))
-        println(db.countWithRegex(table, field, str, false))
-    }
-    val elapsed0 = (System.currentTimeMillis() - t0)
-    println("Time to Exec Query: " + elapsed0.toString + "ms") 
+    val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+
+    println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+    StdIn.readLine() // let it run until user presses return
+    bindingFuture
+      .flatMap(_.unbind()) // trigger unbinding from the port
+      .onComplete(_ => system.terminate()) // and shutdown when done 
   }
 }
