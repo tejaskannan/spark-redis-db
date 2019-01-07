@@ -5,7 +5,10 @@ package uk.ac.cam.cl.r244
  */
 
 import scala.collection.immutable.{Map, List}
+import scala.concurrent.Future
+import scala.util.{Failure, Success}
 import java.util.Random
+
 import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Route
@@ -13,14 +16,16 @@ import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.server.Directives._
 import akka.stream.ActorMaterializer
+
 import spray.json.DefaultJsonProtocol._
 import spray.json._
+
 import scala.io.StdIn
 import ReadQueryProtocol._
 import CountResultProtocol._
 import GetResultProtocol._
-import scala.concurrent.Future
-import scala.util.{Failure, Success}
+import DeleteQueryProtocol._
+import DeleteResultProtocol._
 
 object App {
 
@@ -64,6 +69,20 @@ object App {
                         }
                         onSuccess(results) { value =>
                             complete(GetResult(value).toJson.compactPrint)
+                        }
+                    }
+                }
+            } ~
+            post {
+                path("delete") {
+                    entity(as[String]) { queryStr => 
+                        val jsonAst = queryStr.parseJson
+                        val query = jsonAst.convertTo[DeleteQuery]
+                        val result: Future[Long] = Future {
+                            db.delete(query.table, query.id)
+                        }
+                        onSuccess(result) { value =>
+                            complete(DeleteResult(value).toJson.compactPrint)
                         }
                     }
                 }

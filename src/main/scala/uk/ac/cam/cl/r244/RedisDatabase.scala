@@ -51,12 +51,13 @@ class RedisDatabase(_host: String, _port: Int) {
         key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
     }
 
-    def delete(table: String, id: String): Option[Long] = {
+    def delete(table: String, id: String): Long = {
         val key: String = createKey(table, id)
         removeIdFromCaches(table, id)
         statsManager.addDelete()
         statsManager.removeCountFromTable(table)
-        redisClient.del(key)
+        val result: Option[Long] = redisClient.del(key)
+        if (result == None) 0 else result.get
     }
 
     def deleteCache(cacheName: String): Unit = {

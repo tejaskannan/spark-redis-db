@@ -41,9 +41,8 @@ class AppTest {
         assertFalse(dataFromDb.isEmpty)
         mapEquals(data, dataFromDb)
 
-        val del: Option[Long] = db.delete(table, id)
-        assertFalse(del.isEmpty)
-        assertEquals(1, del.get)
+        val del: Long = db.delete(table, id)
+        assertEquals(1, del)
 
         val dataFromDbDeleted: Map[String, String] = db.get(table, id)
         assertTrue(dataFromDbDeleted.isEmpty)
