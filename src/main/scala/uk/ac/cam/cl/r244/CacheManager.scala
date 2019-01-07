@@ -11,35 +11,34 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
     // Used to store the names of cached objects for quick lookup
     // The values are the utility scores of each entry. Since the cache
     // is small, iterating over the entire cache for eviction should be okay
-    val cache: ConcurrentHashMap[String, Int] = new ConcurrentHashMap()
+    val cache: ConcurrentHashMap[CacheName, Byte] = new ConcurrentHashMap()
 
-    def get(key: String): Option[String] = {
+    def get(key: CacheName): Option[CacheName] = {
         if (cache.containsKey(key)) {
             Some(key)
         } else {
-            val tokens: Array[String] = key.split(splitToken)
-            val queryName = tokens(2)
+            val queryType = key.getQueryType()
+            val table = key.getTable()
+            val field = key.getField()
 
-            if (queryName == QueryTypes.editDistName) {
-                val min: Int = tokens(3).toInt
-                val max: Int = tokens(4).toInt
-                val base: String = cacheNameFormat.format(tokens(0), tokens(1), tokens(2))
+            if (queryType == QueryTypes.editDistName) {
+                val min: Int = key.getData()(0).toInt
+                val max: Int = key.getData()(1).toInt
                 for (name <- cache.keys) {
-                    if (name.startsWith(base)) {
-                        val nameTokens: Array[String] = name.split(splitToken)
-                        if (nameTokens(3).toInt <= min && nameTokens(4).toInt >= max) {
+                    if (name.getTable() == table && name.getField() == field &&
+                        name.getQueryType() == queryType) {
+                        if (name.getData()(0).toInt <= min && name.getData()(1).toInt >= max) {
                             return Some(name)
                         }
                     }
                 }
                 None
-            } else if (queryName == QueryTypes.swName) {
-                val minScore: Int = tokens(tokens.length - 1).toInt
-                val base: String = cacheNameFormat.format(tokens(0), tokens(1), tokens(2))
+            } else if (queryType == QueryTypes.swName) {
+                val minScore: Int = key.getData()(1).toInt
                 for (name <- cache.keys) {
-                    if (name.startsWith(base)) {
-                        val nameTokens: Array[String] = name.split(splitToken)
-                        if (nameTokens(nameTokens.length - 1).toInt < minScore) {
+                    if (name.getTable() == table && name.getField() == field &&
+                        name.getQueryType() == queryType) {
+                        if (name.getData()(1).toInt < minScore) {
                             return Some(name)
                         }
                     }
@@ -59,27 +58,33 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
         sizeLimit
     }
 
-    def getCacheNamesWith(table: String, queryType: String): List[String] = {
+    def getCacheNamesWith(table: String, field: String): List[String] = {
         cache.keys.filter(name => {
-            val tokens = name.split(splitToken)
-            tokens(0) == table && tokens(2) == queryType
+            name.getTable() == table && name.getField() == field
+        }).map(name => name.toString()).toList
+    }
+
+    def getCacheNamesWithTable(table: String): List[String] = {
+        cache.keys.filter(name => name.getTable == table)
+                  .map(name => name.toString()).toList
+    }
+
+    def getCacheNameObjectsWith(table: String, field: String, queryType: String): List[CacheName] = {
+        cache.keys.filter(name => {
+            name.getTable() == table && name.getQueryType() == queryType && name.getField() == field
         }).toList
     }
 
-    def getCacheNamesWithPrefix(prefix: String): List[String] = {
-        cache.keys.filter(name => name.startsWith(prefix)).toList
-    }
-
-    def getCacheScore(cacheName: String): Double = {
+    def getCacheScore(cacheName: CacheName): Double = {
         val age: Long = statsManager.getNumReads - statsManager.getCacheAdded(cacheName)
         val hits: Long = statsManager.getNumHits(cacheName)
         hits.toDouble / age.toDouble
     }
 
-    def add(key: String, replaceFunc: String => Unit): Unit = {
+    def add(key: CacheName, replaceFunc: String => Unit): Unit = {
         if (cache.size == sizeLimit) {
             // Remove the entry with the minimum score
-            var minKey = ""
+            var minKey: CacheName = null
             var minValue: Double = Double.MaxValue
             for (key <- cache.keySet()) {
                 val score: Double = getCacheScore(key)
@@ -91,7 +96,7 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
 
             cache.remove(minKey)
             statsManager.removeCache(minKey)
-            replaceFunc(minKey) // This should drop the redis set
+            replaceFunc(minKey.toString()) // This should drop the redis set
         }
 
         cache.put(key, 0)

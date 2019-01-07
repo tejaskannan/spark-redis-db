@@ -17,10 +17,10 @@ class StatisticsManager {
     private val numDeletes: AtomicLong = new AtomicLong(0)
 
     // Tracks total number of comparisons SAVED by cache hits
-    private val cacheHits = new ConcurrentHashMap[String, AtomicLong]()
+    private val cacheHits = new ConcurrentHashMap[CacheName, AtomicLong]()
 
     // Tracks the timestamp (in terms of number of reads) at which each cache was created
-    private val cacheAdded = new ConcurrentHashMap[String, Long]()
+    private val cacheAdded = new ConcurrentHashMap[CacheName, Long]()
 
     // Tracks the total number of records per table
     private val tableCounts = new ConcurrentHashMap[String, AtomicLong]()
@@ -47,11 +47,11 @@ class StatisticsManager {
         }
     }
 
-    def addCache(cacheName: String): Unit = {
+    def addCache(cacheName: CacheName): Unit = {
         cacheAdded.put(cacheName, numReads.get)
     }
 
-    def getCacheAdded(cacheName: String): Long = {
+    def getCacheAdded(cacheName: CacheName): Long = {
         if (!cacheAdded.containsKey(cacheName)) {
             0
         } else {
@@ -59,15 +59,15 @@ class StatisticsManager {
         }
     }
 
-    def addCacheHit(cacheName: String, tableName: String, countInCache: Int): Long = {
+    def addCacheHit(cacheName: CacheName, countInCache: Int): Long = {
         if (!cacheHits.containsKey(cacheName)) {
             cacheHits.put(cacheName, new AtomicLong(0))
         }
-        val numEntries: Long = getCountForTable(tableName)
+        val numEntries: Long = getCountForTable(cacheName.getTable)
         cacheHits.get(cacheName).addAndGet(numEntries - countInCache)
     }
 
-    def getNumHits(cacheName: String): Long = {
+    def getNumHits(cacheName: CacheName): Long = {
         if (!cacheHits.containsKey(cacheName)) {
             0
         } else {
@@ -75,7 +75,7 @@ class StatisticsManager {
         }
     }
 
-    def removeCache(cacheName: String): Unit = {
+    def removeCache(cacheName: CacheName): Unit = {
         cacheHits.remove(cacheName)
         cacheAdded.remove(cacheName)
     }
