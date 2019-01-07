@@ -71,8 +71,8 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
     }
 
     def getCacheScore(cacheName: String): Double = {
-        val age: Int = statsManager.getNumReads - statsManager.getCacheAdded(cacheName)
-        val hits: Int = statsManager.getNumHits(cacheName)
+        val age: Long = statsManager.getNumReads - statsManager.getCacheAdded(cacheName)
+        val hits: Long = statsManager.getNumHits(cacheName)
         hits.toDouble / age.toDouble
     }
 

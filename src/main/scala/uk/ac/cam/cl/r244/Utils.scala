@@ -6,21 +6,6 @@ object Utils {
         (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
     }
 
-    def getMaxFreqLetter(str: String, stats: StatisticsManager, cutoff: Int): Char = {
-        val start: Int = if (str(0) != '^') 0 else 1
-        val end: Int = if (str(str.length - 1) != '$') str.length else (str.length - 1)
-
-        var maxFreq: Double = 0.0
-        var maxChar: Char = '\0'
-        for (i <- start until min(end, cutoff)) {
-            if (isLetter(str(i)) && stats.getContainsFreq(str(i)) > maxFreq) {
-                maxFreq = stats.getContainsFreq(str(i))
-                maxChar = str(i)
-            }
-        }
-        maxChar
-    }
-
     // Optimized version of edit distance algorithm
     // Implemetation from: https://www.codeproject.com/Articles/13525/%2FArticles%2F13525%2FFast-memory-efficient-Levenshtein-algorithm-2
     def editDistance(s1: String, s2: String, limit: Int): Boolean = {
