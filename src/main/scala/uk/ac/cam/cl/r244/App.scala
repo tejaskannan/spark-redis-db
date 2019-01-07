@@ -18,6 +18,7 @@ import spray.json._
 import scala.io.StdIn
 import ReadQueryProtocol._
 import CountResultProtocol._
+import GetResultProtocol._
 import scala.concurrent.Future
 import scala.util.{Failure, Success}
 
@@ -42,7 +43,7 @@ object App {
 
         val route: Route =
             get {
-                path("search") {
+                path("count") {
                     entity(as[String]) { queryStr =>
                         val jsonAst = queryStr.parseJson
                         val query = jsonAst.convertTo[ReadQuery]
@@ -50,7 +51,19 @@ object App {
                             handleCount(query, db)
                         }
                         onSuccess(count) { value =>
-                            complete(CountResult(value).toJson.prettyPrint)
+                            complete(CountResult(value).toJson.compactPrint)
+                        }
+                    }
+                } ~
+                path("get") {
+                    entity(as[String]) { queryStr =>
+                        val jsonAst = queryStr.parseJson
+                        val query = jsonAst.convertTo[ReadQuery]
+                        val results: Future[List[Map[String, String]]] = Future {
+                            handleGet(query, db)
+                        }
+                        onSuccess(results) { value =>
+                            complete(GetResult(value).toJson.compactPrint)
                         }
                     }
                 }
@@ -83,6 +96,27 @@ object App {
             case `sw` => db.countWithSmithWaterman(query.table, query.field,
                                                     query.target, threshold, multiWord)
             case _ => 0
+        }
+    }
+
+    def handleGet(query: ReadQuery, db: RedisDatabase): List[Map[String, String]] = {
+        val queryType = query.queryType
+        val multiWord = if (query.multiWord != None) query.multiWord.get else false
+        val threshold = if (query.threshold != None) query.threshold.get else 0
+        queryType match {
+            case `prefix` => db.getWithPrefix(query.table, query.field,
+                                                    query.target, multiWord)
+            case `suffix` => db.getWithSuffix(query.table, query.field,
+                                                    query.target, multiWord)
+            case `contains` => db.getWithContains(query.table, query.field,
+                                                    query.target, multiWord)
+            case `regex` => db.getWithRegex(query.table, query.field,
+                                                    query.target, multiWord)
+            case `editdist` => db.getWithEditDistance(query.table, query.field,
+                                                    query.target, threshold, multiWord)
+            case `sw` => db.getWithSmithWaterman(query.table, query.field,
+                                                    query.target, threshold, multiWord)
+            case _ => List[Map[String, String]]()
         }
     }
 }
