@@ -23,6 +23,7 @@ class RedisDatabase(_host: String, _port: Int) {
     val cacheManager = new CacheManager(cacheSize, statsManager)
     val stopwords = new Stopwords()
 
+    private val idField: String = "id"
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
     private val cacheIdFormat: String = "%s:%s"
@@ -40,15 +41,19 @@ class RedisDatabase(_host: String, _port: Int) {
     var sparkContext = spark.sparkContext
 
     def write(table: String, id: String, data: Map[String, String]): Boolean = {
-        val key: String = createKey(table, id)
+        if (table.isEmpty || id.isEmpty || data.isEmpty) {
+            false
+        } else {
+            val key: String = createKey(table, id)
 
-        val existingRecord: Map[String, String] = get(table, id)
-        updateCaches(table, id, existingRecord, data)
+            val existingRecord: Map[String, String] = get(table, id)
+            updateCaches(table, id, existingRecord, data)
 
-        statsManager.addWrite()
-        statsManager.addCountToTable(table)
+            statsManager.addWrite()
+            statsManager.addCountToTable(table)
 
-        key != null && !key.isEmpty && redisClient.hmset(key, prepareData(data, id))
+            redisClient.hmset(key, prepareData(data, id))
+        } 
     }
 
     def delete(table: String, id: String): Long = {
@@ -96,8 +101,8 @@ class RedisDatabase(_host: String, _port: Int) {
     def countWithRegex(table: String, field: String, regex: String,
                        multiWord: Boolean = false): Long = {
         val r: Regex = regex.r
-        val cacheId: String = findRegexCacheName(regex)
         val cacheSubstr: String = Utils.getLongestCharSubstring(regex)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.containsName, cacheSubstr)
         countWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(cacheSubstr),
                   cacheId, multiWord, cacheSubstr == regex)
     }
@@ -140,8 +145,8 @@ class RedisDatabase(_host: String, _port: Int) {
     def getWithRegex(table: String, field: String, regex: String, multiWord: Boolean,
                      resultFields: List[String]): List[Map[String, String]] = {
         val r: Regex = regex.r
-        val cacheId: String = findRegexCacheName(regex)
         val cacheSubstr: String = Utils.getLongestCharSubstring(regex)
+        val cacheId: String = cacheIdFormat.format(QueryTypes.containsName, cacheSubstr)
         getWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(cacheSubstr),
                 cacheId, multiWord, resultFields)
     }
@@ -518,7 +523,8 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     private def prepareData(data: Map[String, String], id: String): Map[String, String] = {
-        data.map(entry => (keyFormat.format(entry._1, id), entry._2))
+        val dataWithId = data + (idField -> id)
+        dataWithId.map(entry => (keyFormat.format(entry._1, id), entry._2))
     }
 
     private def sanitizeData(data: Map[String, String], resultFields: List[String]): Map[String, String] = {
@@ -536,25 +542,6 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def createCacheName(table: String, field: String, name: String): String = {
         cacheNameFormat.format(table, field, name)
-    }
-
-    private def findRegexCacheName(regex: String): String = {
-        val len: Int = regex.length
-        if (len > 1 && regex(0) == '^' && Utils.isLetter(regex(1))) {
-            if (len > 2 && Utils.isLetter(regex(2))) {
-                cacheIdFormat.format(QueryTypes.prefixName, regex(1).toString + regex(2).toString)
-            } else {
-                cacheIdFormat.format(QueryTypes.prefixName, regex(1).toString)
-            }
-        } else if (len > 1 && regex(len - 1) == '$' && Utils.isLetter(regex(len - 2))) {
-            if (len > 2 && Utils.isLetter(regex(len - 3))) {
-                cacheIdFormat.format(QueryTypes.suffixName, regex(len - 2).toString + regex(len - 1).toString)
-            } else {
-                cacheIdFormat.format(QueryTypes.suffixName, regex(len - 2).toString)
-            }
-        } else {
-            cacheIdFormat.format(QueryTypes.containsName, Utils.getLongestCharSubstring(regex))
-        }
     }
 
     // We choose the first non-stopword to cache

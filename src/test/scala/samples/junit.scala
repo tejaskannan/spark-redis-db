@@ -12,6 +12,7 @@ class AppTest {
     val firstName = "firstName"
     val lastName = "lastName"
     val college = "college"
+    val idField = "id"
     val cacheFormat = "%s:%s:%s:%s"
     val prefix = "prefix"
     val suffix = "suffix"
@@ -39,7 +40,7 @@ class AppTest {
 
         val dataFromDb: Map[String, String] = db.get(table, id)
         assertFalse(dataFromDb.isEmpty)
-        mapEquals(data, dataFromDb)
+        mapEquals(data + (idField -> id), dataFromDb)
 
         val del: Long = db.delete(table, id)
         assertEquals(1, del)
@@ -54,12 +55,12 @@ class AppTest {
     @Test
     def sparkCountPrefix(): Unit = {
         val id0 = "15"
-        val data0 = Map((firstName -> "patrick"), (lastName -> "mahomes"))
+        val data0 = Map((idField -> id0), (firstName -> "patrick"), (lastName -> "mahomes"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "18"
-        val data1 = Map((firstName -> "peyton"), (lastName -> "manning"))
+        val data1 = Map((idField -> id1), (firstName -> "peyton"), (lastName -> "manning"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -90,12 +91,12 @@ class AppTest {
     @Test
     def sparkGetPrefix(): Unit = {
         val id0 = "15"
-        val data0 = Map((firstName -> "petrick"), (lastName -> "mahomes"))
+        val data0 = Map((idField -> id0), (firstName -> "petrick"), (lastName -> "mahomes"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "18"
-        val data1 = Map((firstName -> "peyton"), (lastName -> "manning"))
+        val data1 = Map((idField -> id1), (firstName -> "peyton"), (lastName -> "manning"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -134,12 +135,12 @@ class AppTest {
     @Test
     def sparkCountSuffix(): Unit = {
         val id0 = "15"
-        val data0 = Map((firstName -> "patrick"), (lastName -> "mahomes"))
+        val data0 = Map((idField -> id0), (firstName -> "patrick"), (lastName -> "mahomes"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "10"
-        val data1 = Map((firstName -> "deandre"), (lastName -> "hopkins"))
+        val data1 = Map((idField -> id1), (firstName -> "deandre"), (lastName -> "hopkins"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -170,12 +171,12 @@ class AppTest {
     @Test
     def sparkGetSuffix(): Unit = {
         val id0 = "15"
-        val data0 = Map((firstName -> "patrick"), (lastName -> "mahomes"))
+        val data0 = Map((idField -> id0), (firstName -> "patrick"), (lastName -> "mahomes"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "10"
-        val data1 = Map((firstName -> "deandre"), (lastName -> "hopkins"))
+        val data1 = Map((idField -> id1), (firstName -> "deandre"), (lastName -> "hopkins"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -209,12 +210,12 @@ class AppTest {
     @Test
     def sparkCountRegex(): Unit = {
         val id0 = "14"
-        val data0 = Map((firstName -> "stefon"), (lastName -> "diggs"))
+        val data0 = Map((idField -> id0), (firstName -> "stefon"), (lastName -> "diggs"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "22"
-        val data1 = Map((firstName -> "stevan"), (lastName -> "ridley"))
+        val data1 = Map((idField -> id1), (firstName -> "stevan"), (lastName -> "ridley"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -245,12 +246,12 @@ class AppTest {
     @Test
     def sparkGetRegex(): Unit = {
         val id0 = "14"
-        val data0 = Map((firstName -> "stefon"), (lastName -> "diggs"))
+        val data0 = Map((idField -> id0), (firstName -> "stefon"), (lastName -> "diggs"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "22"
-        val data1 = Map((firstName -> "stevan"), (lastName -> "ridley"))
+        val data1 = Map((idField -> id1), (firstName -> "stevan"), (lastName -> "ridley"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -284,12 +285,12 @@ class AppTest {
     @Test
     def sparkCountContains() {
         val id0 = "28"
-        val data0 = Map((firstName -> "james"), (lastName -> "white"))
+        val data0 = Map((idField -> id0), (firstName -> "james"), (lastName -> "white"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "97"
-        val data1 = Map((firstName -> "cameron"), (lastName -> "heyward"))
+        val data1 = Map((idField -> id1), (firstName -> "cameron"), (lastName -> "heyward"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -320,12 +321,12 @@ class AppTest {
     @Test
     def sparkGetContains() {
         val id0 = "28"
-        val data0 = Map((firstName -> "james"), (lastName -> "white"))
+        val data0 = Map((idField -> id0), (firstName -> "james"), (lastName -> "white"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "97"
-        val data1 = Map((firstName -> "cameron"), (lastName -> "heyward"))
+        val data1 = Map((idField -> id1), (firstName -> "cameron"), (lastName -> "heyward"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -359,12 +360,12 @@ class AppTest {
     @Test
     def sparkCountWithEditDistance() {
         val id0 = "28"
-        val data0 = Map((firstName -> "tavon"), (lastName -> "austin"))
+        val data0 = Map((idField -> id0), (firstName -> "tavon"), (lastName -> "austin"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "97"
-        val data1 = Map((firstName -> "taylor"), (lastName -> "gabriel"))
+        val data1 = Map((idField -> id1), (firstName -> "taylor"), (lastName -> "gabriel"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -396,12 +397,12 @@ class AppTest {
     @Test
     def sparkGetWithEditDistance() {
         val id0 = "28"
-        val data0 = Map((firstName -> "tavon"), (lastName -> "austin"))
+        val data0 = Map((idField -> id0), (firstName -> "tavon"), (lastName -> "austin"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "97"
-        val data1 = Map((firstName -> "taylor"), (lastName -> "gabriel"))
+        val data1 = Map((idField -> id1), (firstName -> "taylor"), (lastName -> "gabriel"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -439,12 +440,12 @@ class AppTest {
         val field = "seq"
 
         val id0 = "0"
-        val data0 = Map((field -> "aatcgtcg"))
+        val data0 = Map((idField -> id0), (field -> "aatcgtcg"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "1"
-        val data1 = Map((field -> "aatcgtag"))
+        val data1 = Map((idField -> id1), (field -> "aatcgtag"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -472,12 +473,12 @@ class AppTest {
         val field = "seq"
 
         val id0 = "0"
-        val data0 = Map((field -> "aatcgtcg"))
+        val data0 = Map((idField -> id0), (field -> "aatcgtcg"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "1"
-        val data1 = Map((field -> "aatcgtag"))
+        val data1 = Map((idField -> id1), (field -> "aatcgtag"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -513,12 +514,12 @@ class AppTest {
     @Test
     def removeFromCache() {
         val id0 = "12"
-        val data0 = Map((firstName -> "tom"), (lastName -> "brady"))
+        val data0 = Map((idField -> id0), (firstName -> "tom"), (lastName -> "brady"))
         val write0: Boolean = db.write(table, id0, data0)
         assertTrue(write0)
 
         val id1 = "30"
-        val data1 = Map((firstName -> "todd"), (lastName -> "gurley"))
+        val data1 = Map((idField -> id1), (firstName -> "todd"), (lastName -> "gurley"))
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
@@ -545,7 +546,7 @@ class AppTest {
     @Test
     def addToCache() {
         val id0 = "1"
-        val data0 = Map((firstName -> "cam"), (lastName -> "newton"), (college -> "auburn"))
+        val data0 = Map((idField -> id0), (firstName -> "cam"), (lastName -> "newton"), (college -> "auburn"))
         assertTrue(db.write(table, id0, data0))
 
         assertEquals(1, db.countWithPrefix(table, firstName, "ca"))
@@ -553,7 +554,7 @@ class AppTest {
         Thread.sleep(1000)
 
         val id1 = "6"
-        val data1 = Map((firstName -> "cady"), (lastName -> "kessler"), (college -> "usc"))
+        val data1 = Map((idField -> id1), (firstName -> "cady"), (lastName -> "kessler"), (college -> "usc"))
         assertTrue(db.write(table, id1, data1))
 
         val prefixCacheName = cacheFormat.format(table, firstName, prefix, "ca")
@@ -565,7 +566,7 @@ class AppTest {
         Thread.sleep(1000)
 
         val id2 = "3"
-        val data2 = Map((firstName -> "josh"), (lastName -> "rosen"), (college -> "ucla"))
+        val data2 = Map((idField -> id2), (firstName -> "josh"), (lastName -> "rosen"), (college -> "ucla"))
         assertTrue(db.write(table, id2, data2))
 
         val collegeCacheName = cacheFormat.format(table, college, prefix, "u")
@@ -591,13 +592,13 @@ class AppTest {
         db.cacheManager.setSize(2)
 
         val id0 = "18"
-        val data0 = Map((firstName -> "peyton"), (lastName -> "manning"), (college -> "tennessee"))
+        val data0 = Map((idField -> id0), (firstName -> "peyton"), (lastName -> "manning"), (college -> "tennessee"))
 
         val id1 = "15"
-        val data1 = Map((firstName -> "patrick"), (lastName -> "mahomes"), (college -> "texas tech"))
+        val data1 = Map((idField -> id1), (firstName -> "patrick"), (lastName -> "mahomes"), (college -> "texas tech"))
 
         val id2 = "17"
-        val data2 = Map((firstName -> "philip"), (lastName -> "rivers"), (college -> "nc state"))
+        val data2 = Map((idField -> id2), (firstName -> "philip"), (lastName -> "rivers"), (college -> "nc state"))
 
         db.write(table, id0, data0)
         db.write(table, id1, data1)
@@ -647,10 +648,10 @@ class AppTest {
     @Test
     def editDistanceCaching() {
         val id0 = "12"
-        val data0 = Map((firstName -> "tom"), (lastName -> "brady"))
+        val data0 = Map((idField -> id0), (firstName -> "tom"), (lastName -> "brady"))
 
         val id1 = "10"
-        val data1 = Map((firstName -> "tim"), (lastName -> "brown"))
+        val data1 = Map((idField -> id1), (firstName -> "tim"), (lastName -> "brown"))
 
         db.write(table, id0, data0)
         db.write(table, id1, data1)
