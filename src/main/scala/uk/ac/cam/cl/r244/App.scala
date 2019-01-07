@@ -103,19 +103,20 @@ object App {
         val queryType = query.queryType
         val multiWord = if (query.multiWord != None) query.multiWord.get else false
         val threshold = if (query.threshold != None) query.threshold.get else 0
+        val resultFields = if (query.resultFields != None) query.resultFields.get else List[String]()
         queryType match {
             case `prefix` => db.getWithPrefix(query.table, query.field,
-                                                    query.target, multiWord)
+                                                    query.target, multiWord, resultFields)
             case `suffix` => db.getWithSuffix(query.table, query.field,
-                                                    query.target, multiWord)
+                                                    query.target, multiWord, resultFields)
             case `contains` => db.getWithContains(query.table, query.field,
-                                                    query.target, multiWord)
+                                                    query.target, multiWord, resultFields)
             case `regex` => db.getWithRegex(query.table, query.field,
-                                                    query.target, multiWord)
-            case `editdist` => db.getWithEditDistance(query.table, query.field,
-                                                    query.target, threshold, multiWord)
-            case `sw` => db.getWithSmithWaterman(query.table, query.field,
-                                                    query.target, threshold, multiWord)
+                                                    query.target, multiWord, resultFields)
+            case `editdist` => db.getWithEditDistance(query.table, query.field, query.target,
+                                                    threshold, multiWord, resultFields)
+            case `sw` => db.getWithSmithWaterman(query.table, query.field, query.target,
+                                                    threshold, multiWord, resultFields)
             case _ => List[Map[String, String]]()
         }
     }

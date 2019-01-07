@@ -102,19 +102,19 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
 
-        val getPrefix0: List[Map[String, String]] = db.getWithPrefix(table, firstName, "pey")
+        val getPrefix0: List[Map[String, String]] = db.getWithPrefix(table, firstName, "pey", false, List[String]())
         assertEquals(1, getPrefix0.size)
         mapEquals(data1, getPrefix0(0))
 
         // Test the caching
         Thread.sleep(1000)
-        val getPrefixCache: List[Map[String, String]] = db.getWithPrefix(table, firstName, "pe")
+        val getPrefixCache: List[Map[String, String]] = db.getWithPrefix(table, firstName, "pe", false, List[String]())
         listMapEquals(dataLst, getPrefixCache)
 
-        val getPrefix1: List[Map[String, String]] = db.getWithPrefix(table, lastName, "ma")
+        val getPrefix1: List[Map[String, String]] = db.getWithPrefix(table, lastName, "ma", false, List[String]())
         listMapEquals(dataLst, getPrefix1)
 
-        val getPrefix2: List[Map[String, String]] = db.getWithPrefix(table, firstName, "an")
+        val getPrefix2: List[Map[String, String]] = db.getWithPrefix(table, firstName, "an", false, List[String]())
         assertEquals(0, getPrefix2.size)
 
         Thread.sleep(500)
@@ -182,14 +182,14 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
 
-        val getSuffix0: List[Map[String, String]] = db.getWithSuffix(table, lastName, "es")
+        val getSuffix0: List[Map[String, String]] = db.getWithSuffix(table, lastName, "es", false, List[String]())
         assertEquals(1, getSuffix0.size)
         mapEquals(data0, getSuffix0(0))
 
-        val getSuffix1: List[Map[String, String]] = db.getWithSuffix(table, lastName, "s")
+        val getSuffix1: List[Map[String, String]] = db.getWithSuffix(table, lastName, "s", false, List[String]())
         listMapEquals(dataLst, getSuffix1)
 
-        val getSuffix2: List[Map[String, String]] = db.getWithSuffix(table, firstName, "ack")
+        val getSuffix2: List[Map[String, String]] = db.getWithSuffix(table, firstName, "ack", false, List[String]())
         assertEquals(0, getSuffix2.size)
 
         Thread.sleep(500)
@@ -257,14 +257,14 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
 
-        val getRegex0: List[Map[String, String]] = db.getWithRegex(table, lastName, ".*d.*s.*")
+        val getRegex0: List[Map[String, String]] = db.getWithRegex(table, lastName, ".*d.*s.*", false, List[String]())
         assertEquals(1, getRegex0.size)
         mapEquals(data0, getRegex0(0))
 
-        val getRegex1: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*ste.*n.*")
+        val getRegex1: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*ste.*n.*", false, List[String]())
         listMapEquals(dataLst, getRegex1)
 
-        val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*are.*")
+        val getRegex2: List[Map[String, String]] = db.getWithRegex(table, firstName, ".*are.*", false, List[String]())
         assertEquals(0, getRegex2.size)
 
         Thread.sleep(500)
@@ -332,14 +332,14 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
 
-        val getContains0: List[Map[String, String]] = db.getWithContains(table, firstName, "ame", false)
+        val getContains0: List[Map[String, String]] = db.getWithContains(table, firstName, "ame", false, List[String]())
         listMapEquals(dataLst, getContains0)
 
-        val getContains1: List[Map[String, String]] = db.getWithContains(table, lastName, "ite", false)
+        val getContains1: List[Map[String, String]] = db.getWithContains(table, lastName, "ite", false, List[String]())
         assertEquals(1, getContains1.size)
         mapEquals(data0, getContains1(0))
 
-        val getContains2: List[Map[String, String]] = db.getWithContains(table, firstName, "hez", false)
+        val getContains2: List[Map[String, String]] = db.getWithContains(table, firstName, "hez", false, List[String]())
         assertTrue(getContains2.isEmpty)
 
         Thread.sleep(500)
@@ -369,15 +369,15 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val countContains0: Long = db.countWithEditDistance(table, firstName, "tavlor", 2)
+        val countContains0: Long = db.countWithEditDistance(table, firstName, "tavlor", 2, false)
         assertEquals(2, countContains0)
 
         Thread.sleep(500)
 
-        val countContains1: Long = db.countWithEditDistance(table, firstName, "tavlor", 1)
+        val countContains1: Long = db.countWithEditDistance(table, firstName, "tavlor", 1, false)
         assertEquals(1, countContains1)
 
-        val countContains2: Long = db.countWithEditDistance(table, lastName, "zen", 1)
+        val countContains2: Long = db.countWithEditDistance(table, lastName, "zen", 1, false)
         assertEquals(0, countContains2)
 
         Thread.sleep(500)
@@ -408,16 +408,16 @@ class AppTest {
 
         val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
 
-        val getContains0: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 2)
+        val getContains0: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 2, false, List[String]())
         listMapEquals(dataLst, getContains0)
 
         Thread.sleep(500)
 
-        val getContains1: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 1)
+        val getContains1: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 1, false, List[String]())
         assertEquals(1, getContains1.size)
         mapEquals(data1, getContains1(0))
 
-        val getContains2: List[Map[String, String]] = db.getWithEditDistance(table, lastName, "zen", 1)
+        val getContains2: List[Map[String, String]] = db.getWithEditDistance(table, lastName, "zen", 1, false, List[String]())
         assertTrue(getContains2.isEmpty)
 
         Thread.sleep(500)
@@ -450,10 +450,10 @@ class AppTest {
         assertTrue(write1)
 
         val seq = "aacgatc"
-        assertEquals(2, db.countWithSmithWaterman(table, field, seq, 3))
+        assertEquals(2, db.countWithSmithWaterman(table, field, seq, 3, false))
         Thread.sleep(1000)
-        assertEquals(1, db.countWithSmithWaterman(table, field, seq, 4))
-        assertEquals(0, db.countWithSmithWaterman(table, field, seq, 7))
+        assertEquals(1, db.countWithSmithWaterman(table, field, seq, 4, false))
+        assertEquals(0, db.countWithSmithWaterman(table, field, seq, 7, false))
 
         val cache0Name = cacheFormat.format(table, field, QueryTypes.swName, seq + ":3")
         val cache1Name = cacheFormat.format(table, field, QueryTypes.swName, seq + ":4")
@@ -486,17 +486,17 @@ class AppTest {
 
         val seq = "aacgatc"
 
-        val get0 = db.getWithSmithWaterman(table, field, seq, 3)
+        val get0 = db.getWithSmithWaterman(table, field, seq, 3, false, List[String]())
         assertEquals(2, get0.size)
         listMapEquals(dataLst, get0)
 
         Thread.sleep(1000)
 
-        val get1 = db.getWithSmithWaterman(table, field, seq, 4)
+        val get1 = db.getWithSmithWaterman(table, field, seq, 4, false, List[String]())
         assertEquals(1, get1.size)
         mapEquals(data0, get1(0))
 
-        val get2 = db.getWithSmithWaterman(table, field, seq, 7)
+        val get2 = db.getWithSmithWaterman(table, field, seq, 7, false, List[String]())
         assertEquals(0, get2.size)
 
         val cache0Name = cacheFormat.format(table, field, QueryTypes.swName, seq + ":3")

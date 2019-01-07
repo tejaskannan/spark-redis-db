@@ -65,7 +65,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def get(table: String, id: String): Map[String, String] = {
         val key: String = createKey(table, id)
-        sanitizeData(redisClient.hgetall[String, String](key).get)
+        sanitizeData(redisClient.hgetall[String, String](key).get, List[String]())
     }
 
     def countWithPrefix(table: String, field: String, prefix: String,
@@ -112,73 +112,75 @@ class RedisDatabase(_host: String, _port: Int) {
                   cacheId, multiWord, cacheManager.get(cacheName) == cacheName)
     }
 
-    def getWithPrefix(table: String, field: String, prefix: String,
-                      multiWord: Boolean = false): List[Map[String, String]] = {
+    def getWithPrefix(table: String, field: String, prefix: String, multiWord: Boolean,
+                      resultFields: List[String]): List[Map[String, String]] = {
         var cacheChars: String = prefix(0).toString
         if (prefix.length > 1) {
             cacheChars += prefix(1).toString
         }
         val cacheFilter: String => Boolean = str => str.startsWith(cacheChars)
         val cacheId: String = cacheIdFormat.format(QueryTypes.prefixName, cacheChars)
-        getWith(table, field, str => str.startsWith(prefix), cacheFilter, cacheId, multiWord)
+        getWith(table, field, str => str.startsWith(prefix), cacheFilter, cacheId,
+                multiWord, resultFields)
     }
 
-    def getWithSuffix(table: String, field: String, suffix: String,
-                      multiWord: Boolean = false): List[Map[String, String]] = {
+    def getWithSuffix(table: String, field: String, suffix: String, multiWord: Boolean,
+                      resultFields: List[String]): List[Map[String, String]] = {
         var cacheChars: String = suffix(suffix.length - 1).toString
         if (suffix.length > 1) {
             cacheChars = suffix(suffix.length - 2).toString + cacheChars
         }
         val cacheFilter: String => Boolean = str => str.endsWith(cacheChars)
         val cacheId: String = cacheIdFormat.format(QueryTypes.suffixName, cacheChars)
-        getWith(table, field, str => str.endsWith(suffix), cacheFilter, cacheId, multiWord)
+        getWith(table, field, str => str.endsWith(suffix), cacheFilter, cacheId,
+                multiWord, resultFields)
     }
 
-    def getWithRegex(table: String, field: String, regex: String,
-                     multiWord: Boolean = false): List[Map[String, String]] = {
+    def getWithRegex(table: String, field: String, regex: String, multiWord: Boolean,
+                     resultFields: List[String]): List[Map[String, String]] = {
         val r: Regex = regex.r
         val cacheId: String = findRegexCacheName(regex)
         val cacheSubstr: String = Utils.getLongestCharSubstring(regex)
         getWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(cacheSubstr),
-                cacheId, multiWord)
+                cacheId, multiWord, resultFields)
     }
 
-    def getWithEditDistance(table: String, field: String, target: String,
-                            dist: Int, multiWord: Boolean = false): List[Map[String, String]] = {
+    def getWithEditDistance(table: String, field: String, target: String, dist: Int,
+                            multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val minLength: Int = Utils.max(target.length - dist, 0)
         val maxLength: Int = target.length + dist
         val cacheId: String = cacheIdFormat.format(QueryTypes.editDistName, keyFormat.format(minLength.toString, maxLength.toString))
         val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
         getWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter,
-                cacheId, multiWord)
+                cacheId, multiWord, resultFields)
     }
 
     def countWithContains(table: String, field: String, substring: String,
-                          multiWord: Boolean = false): Long = {
+                          multiWord: Boolean): Long = {
         val cacheId: String = cacheIdFormat.format(QueryTypes.containsName, substring)
         val filter: String => Boolean = str => str.contains(substring)
         countWithExact(table, field, filter, cacheId, multiWord)
     }
 
     def getWithContains(table: String, field: String, substring: String,
-                        multiWord: Boolean = false): List[Map[String, String]] = {
+                        multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val cacheId: String = cacheIdFormat.format(QueryTypes.containsName, substring)
         val filter: String => Boolean = str => str.contains(substring)
-        getWithExact(table, field, filter, cacheId, multiWord)
+        getWithExact(table, field, filter, cacheId, multiWord, resultFields)
     }
 
     def countWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
-                               multiWord: Boolean = false): Long = {
+                               multiWord: Boolean): Long = {
         val cacheId: String = cacheIdFormat.format(QueryTypes.swName, cacheIdFormat.format(target, minScore.toString))
         val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
         countWithExact(table, field, filter, cacheId, multiWord)
     }
 
     def getWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
-                             multiWord: Boolean = false): List[Map[String, String]] = {
+                             multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val cacheId: String = cacheIdFormat.format(QueryTypes.swName, cacheIdFormat.format(target, minScore.toString))
         val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
-        getWithExact(table, field, filter, cacheId, multiWord)
+        getWithExact(table, field, filter, cacheId, multiWord, resultFields)
     }
 
 
@@ -237,7 +239,8 @@ class RedisDatabase(_host: String, _port: Int) {
     }
 
     private def getWithExact(table: String, field: String, filter: String => Boolean,
-                             cacheId: String, multiWord: Boolean): List[Map[String, String]] = {
+                             cacheId: String, multiWord: Boolean,
+                             resultFields: List[String]): List[Map[String, String]] = {
         val cacheName: String = createCacheName(table, field, cacheId)
         val fieldPrefix: String = keyFormat.format(field, "")
 
@@ -270,7 +273,7 @@ class RedisDatabase(_host: String, _port: Int) {
         } else {
             if (cacheName == cache.get) {
                ids = redisClient.smembers[String](cache.get).get
-                             .map(x => keyFormat.format(table, x.get))
+                             .map(x => x.get)
                              .toList
             } else {
                 // We are in a case where there is a cache for Smith-Waterman with a lower
@@ -298,7 +301,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val queryExec = redisClient.pipelineNoMulti(queries)
         queryExec.map(a => Await.result(a.future, timeout))
                  .map(_.asInstanceOf[Option[Map[String, String]]])
-                 .map(m => sanitizeData(m.get))
+                 .map(m => sanitizeData(m.get, resultFields))
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -362,17 +365,17 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def getWith(table: String, field: String, filter: String => Boolean,
                         cacheFilter: String => Boolean, cacheName: String,
-                        multiWord: Boolean): List[Map[String, String]] = {
+                        multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val fieldPrefix: String = keyFormat.format(field, "")
         var ids: List[String] = List()
         val valueIndex: Int = 1
 
         statsManager.addRead()
 
-        val cache: Option[String] = cacheManager.get(createCacheName(table, field, cacheName))
+        var fullCacheName = createCacheName(table, field, cacheName)
+        val cache: Option[String] = cacheManager.get(fullCacheName)
 
         if (cache == None) {
-            val fullCacheName = createCacheName(table, field, cacheName)
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
 
             if (multiWord) {
@@ -399,7 +402,7 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         } else {
-            val fullCacheName = cache.get
+            fullCacheName = cache.get
             val indices: Array[String] = redisClient.smembers[String](fullCacheName).get
                                                     .map(x => keyFormat.format(table, x.get))
                                                     .toArray
@@ -416,11 +419,11 @@ class RedisDatabase(_host: String, _port: Int) {
 
         val queries = ids.map(id => keyFormat.format(table, id))
                          .map(key => (() => redisClient.hgetall[String, String](key)))
-
+        
         val queryExec = redisClient.pipelineNoMulti(queries)
         queryExec.map(a => Await.result(a.future, timeout))
                  .map(_.asInstanceOf[Option[Map[String, String]]])
-                 .map(m => sanitizeData(m.get))
+                 .map(m => sanitizeData(m.get, resultFields))
     }
 
     private def removeIdFromCaches(table: String, id: String): Unit = {
@@ -517,8 +520,13 @@ class RedisDatabase(_host: String, _port: Int) {
         data.map(entry => (keyFormat.format(entry._1, id), entry._2))
     }
 
-    private def sanitizeData(data: Map[String, String]): Map[String, String] = {
-        data.map(entry => (entry._1.split(":")(0), entry._2))
+    private def sanitizeData(data: Map[String, String], resultFields: List[String]): Map[String, String] = {
+        val sanitized = data.map(entry => (entry._1.split(":")(0), entry._2))
+        if (resultFields.isEmpty) {
+            sanitized
+        } else {
+            sanitized.filter(entry => resultFields.contains(entry._1))
+        }
     }
 
     private def createKey(table: String, id: String): String = {
