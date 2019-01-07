@@ -1,7 +1,7 @@
 package uk.ac.cam.cl.r244
 
 /**
- * @author ${user.name}
+ * @author tejas.kannan
  */
 
 import scala.collection.immutable.{Map, List}
@@ -26,6 +26,8 @@ import CountResultProtocol._
 import GetResultProtocol._
 import DeleteQueryProtocol._
 import DeleteResultProtocol._
+import WriteQueryProtocol._
+import WriteResultProtocol._
 
 object App {
 
@@ -41,7 +43,7 @@ object App {
     def main(args : Array[String]) {
         val db = new RedisDatabase("localhost", 6379)
 
-        implicit val system = ActorSystem("my-system")
+        implicit val system = ActorSystem()
         implicit val materializer = ActorMaterializer()
         // needed for the future flatMap/onComplete in the end
         implicit val executionContext = system.dispatcher
@@ -83,6 +85,18 @@ object App {
                         }
                         onSuccess(result) { value =>
                             complete(DeleteResult(value).toJson.compactPrint)
+                        }
+                    }
+                } ~
+                path("write") {
+                    entity(as[String]) { queryStr =>
+                        val jsonAst = queryStr.parseJson
+                        val query = jsonAst.convertTo[WriteQuery]
+                        val result: Future[Boolean] = Future {
+                            db.write(query.table, query.id, query.record)
+                        }
+                        onSuccess(result) { value =>
+                            complete(WriteResult(value).toJson.compactPrint)
                         }
                     }
                 }
