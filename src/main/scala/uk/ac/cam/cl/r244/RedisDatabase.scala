@@ -258,14 +258,15 @@ class RedisDatabase(_host: String, _port: Int) {
                 statsManager.addCacheHit(cacheName, count.toInt)
                 count
             } else {
+                val convertedCacheName: CacheName = cache.get
                 // We are in a case where a smith-waterman score is less than the current
                 // query, so we can reuse those results here
                 // We fetch the indices into memory as the set of indices is small
-                val indices: Array[String] = redisClient.smembers[String](cacheName.toString).get
+                val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
                                                         .map(x => keyFormat.format(table, x.get))
                                                         .toArray
 
-                statsManager.addCacheHit(cacheName, indices.size)
+                statsManager.addCacheHit(convertedCacheName, indices.size)
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
                 hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
@@ -315,11 +316,13 @@ class RedisDatabase(_host: String, _port: Int) {
             } else {
                 // We are in a case where there is a cache for Smith-Waterman with a lower
                 // minimum score than the one currently being queried
-                val indices: Array[String] = redisClient.smembers[String](cacheName.toString).get
+                val convertedCacheName: CacheName = cache.get
+
+                val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
                                                         .map(x => keyFormat.format(table, x.get))
                                                         .toArray
 
-                statsManager.addCacheHit(cacheName, indices.size)
+                statsManager.addCacheHit(convertedCacheName, indices.size)
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
                 ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
@@ -382,12 +385,13 @@ class RedisDatabase(_host: String, _port: Int) {
                 statsManager.addCacheHit(cacheName, count.toInt)
                 count
             } else {
+                val convertedCacheName: CacheName = cache.get
                 // We fetch the indices into memory as the set of indices is small
-                val indices: Array[String] = redisClient.smembers[String](cacheName.toString).get
+                val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
                                                         .map(x => keyFormat.format(table, x.get))
                                                         .toArray
 
-                statsManager.addCacheHit(cacheName, indices.size)
+                statsManager.addCacheHit(convertedCacheName, indices.size)
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
                 hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
@@ -435,11 +439,12 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         } else {
-            val indices: Array[String] = redisClient.smembers[String](cacheName.toString).get
+            val convertedCacheName: CacheName = cache.get
+            val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
                                                     .map(x => keyFormat.format(table, x.get))
                                                     .toArray
 
-            statsManager.addCacheHit(cacheName, indices.size)
+            statsManager.addCacheHit(convertedCacheName, indices.size)
 
             val hashRDD = sparkContext.fromRedisHash(indices)
             ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))

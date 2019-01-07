@@ -2,7 +2,7 @@ package samples
 
 import org.junit.{Test, Before}
 import org.junit.Assert.{assertTrue, assertFalse, assertEquals}
-import uk.ac.cam.cl.r244.{RedisDatabase, Utils, StatisticsManager, QueryTypes}
+import uk.ac.cam.cl.r244.{RedisDatabase, Utils, StatisticsManager, QueryTypes, CacheName}
 
 @Test
 class AppTest {
@@ -614,17 +614,17 @@ class AppTest {
         db.countWithPrefix(table, firstName, "p")
         db.countWithPrefix(table, lastName, "ma")
 
-        val cache0Name = cacheFormat.format(table, firstName, prefix, "p")
-        val cache1Name = cacheFormat.format(table, lastName, prefix, "ma")
+        val cache0Name = new CacheName(table, firstName, prefix, List[String]("p"))
+        val cache1Name = new CacheName(table, lastName, prefix, List[String]("ma"))
 
         assertTrue(db.cacheManager.get(cache0Name) != None)
         assertTrue(db.cacheManager.get(cache1Name) != None)
 
-        assertTrue(db.redisClient.exists(cache0Name))
-        assertTrue(db.redisClient.exists(cache1Name))
+        assertTrue(db.redisClient.exists(cache0Name.toString))
+        assertTrue(db.redisClient.exists(cache1Name.toString))
 
         db.countWithPrefix(table, college, "te")
-        val cache2Name = cacheFormat.format(table, college, prefix, "te")
+        val cache2Name = new CacheName(table, college, prefix, List[String]("te"))
 
         Thread.sleep(1000)
 
@@ -632,15 +632,15 @@ class AppTest {
         assertTrue(db.cacheManager.get(cache2Name) != None)
         assertTrue(db.cacheManager.get(cache0Name) == None)
 
-        assertTrue(db.redisClient.exists(cache1Name))
-        assertTrue(db.redisClient.exists(cache2Name))
-        assertFalse(db.redisClient.exists(cache0Name))
+        assertTrue(db.redisClient.exists(cache1Name.toString))
+        assertTrue(db.redisClient.exists(cache2Name.toString))
+        assertFalse(db.redisClient.exists(cache0Name.toString))
 
         db.delete(table, id0)
         db.delete(table, id1)
         db.delete(table, id2)
-        db.deleteCache(cache0Name)
-        db.deleteCache(cache2Name)
+        db.deleteCache(cache0Name.toString)
+        db.deleteCache(cache2Name.toString)
 
         db.cacheManager.setSize(16)
     }
@@ -664,18 +664,18 @@ class AppTest {
 
         Thread.sleep(1000)
 
-        val cacheName = cacheFormat.format(table, firstName, editdist, "2:6")
-        val wrongName = cacheFormat.format(table, firstName, editdist, "2:4")
+        val cacheName = new CacheName(table, firstName, editdist, List[String]("2", "6"))
+        val wrongName = new CacheName(table, firstName, editdist, List[String]("2", "4"))
         assertTrue(db.cacheManager.get(cacheName) != None)
         assertTrue(db.cacheManager.get(wrongName) != None)
         assertEquals(cacheName, db.cacheManager.get(wrongName).get)
 
-        assertTrue(db.redisClient.exists(cacheName))
-        assertFalse(db.redisClient.exists(wrongName))
+        assertTrue(db.redisClient.exists(cacheName.toString))
+        assertFalse(db.redisClient.exists(wrongName.toString))
 
         db.delete(table, id0)
         db.delete(table, id1)
-        db.deleteCache(cacheName)
+        db.deleteCache(cacheName.toString)
     }
 
     @Test
