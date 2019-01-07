@@ -29,7 +29,7 @@ class RedisDatabase(_host: String, _port: Int) {
     private val cacheIdFormat: String = "%s:%s"
     private val cacheNameFormat: String = "%s:%s:%s"
     private val keyToken = ":"
-    private val t: Int = 5000
+    private val t: Int = 10000
     private val timeout: Duration = Duration(t, "millis")
 
     val sparkConf = new SparkConf().setMaster("local[4]")
@@ -39,6 +39,42 @@ class RedisDatabase(_host: String, _port: Int) {
             .set("spark.redis.auth", "")
     val spark = SparkSession.builder.config(sparkConf).getOrCreate()
     var sparkContext = spark.sparkContext
+
+    def bulkWrite(table: String, records: List[Map[String, String]]): Long = {
+        if (table.isEmpty || records.isEmpty) {
+            0
+        } else {
+            // We insert 1000 records at a time
+            val threshold = 1000
+            var count: Long = 0
+
+            var queries = new ListBuffer[() => Boolean]()
+            for (i <- 0 until records.length) {
+                val record = records(i)
+                if (record.contains(idField)) {
+                    val id = record(idField)
+
+                    val key: String = createKey(table, id)
+                    val existingRecord: Map[String, String] = get(table, id)
+                    updateCaches(table, id, existingRecord, record)
+
+                    statsManager.addWrite()
+                    statsManager.addCountToTable(table)
+
+                    queries += (() => redisClient.hmset(key, prepareData(record, id)))
+
+                    if (i % threshold == 0 || i == records.length - 1) {
+                        val queryExec = redisClient.pipelineNoMulti(queries)
+                        count += queryExec.map(a => Await.result(a.future, timeout))
+                                          .map(_.asInstanceOf[Boolean])
+                                          .count(_ == true)
+                        queries = new ListBuffer[() => Boolean]()
+                    }
+                } 
+            }
+            count
+        }
+    }
 
     def write(table: String, id: String, data: Map[String, String]): Boolean = {
         if (table.isEmpty || id.isEmpty || data.isEmpty) {

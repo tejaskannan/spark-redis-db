@@ -28,6 +28,8 @@ import DeleteQueryProtocol._
 import DeleteResultProtocol._
 import WriteQueryProtocol._
 import WriteResultProtocol._
+import BulkWriteQueryProtocol._
+import BulkWriteResultProtocol._
 
 object App {
 
@@ -97,6 +99,18 @@ object App {
                         }
                         onSuccess(result) { value =>
                             complete(WriteResult(value).toJson.compactPrint)
+                        }
+                    }
+                } ~
+                path("bulkwrite") {
+                    entity(as[String]) { queryStr =>
+                        val jsonAst = queryStr.parseJson
+                        val query = jsonAst.convertTo[BulkWriteQuery]
+                        val result: Future[Long] = Future {
+                            db.bulkWrite(query.table, query.records)
+                        }
+                        onSuccess(result) { value =>
+                            complete(BulkWriteResult(value).toJson.compactPrint)
                         }
                     }
                 }
