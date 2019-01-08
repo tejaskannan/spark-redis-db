@@ -56,11 +56,13 @@ object App {
                     entity(as[String]) { queryStr =>
                         val jsonAst = queryStr.parseJson
                         val query = jsonAst.convertTo[ReadQuery]
+                        val startTime = System.currentTimeMillis()
                         val count: Future[Long] = Future {
                             handleCount(query, db)
                         }
                         onSuccess(count) { value =>
-                            complete(CountResult(value).toJson.compactPrint)
+                            val endTime = System.currentTimeMillis()
+                            complete(CountResult(value, endTime - startTime).toJson.compactPrint)
                         }
                     }
                 } ~
@@ -68,11 +70,13 @@ object App {
                     entity(as[String]) { queryStr =>
                         val jsonAst = queryStr.parseJson
                         val query = jsonAst.convertTo[ReadQuery]
+                        val startTime = System.currentTimeMillis()
                         val results: Future[List[Map[String, String]]] = Future {
                             handleGet(query, db)
                         }
                         onSuccess(results) { value =>
-                            complete(GetResult(value).toJson.compactPrint)
+                            val endTime = System.currentTimeMillis()
+                            complete(GetResult(value, endTime - startTime).toJson.compactPrint)
                         }
                     }
                 }

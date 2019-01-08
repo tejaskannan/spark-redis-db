@@ -44,6 +44,17 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
                     }
                 }
                 None
+            } else if (queryType == QueryTypes.containsName) {
+                val substr: String = key.getData()(0)
+                for (name <- cache.keys) {
+                    if (name.getTable() == table && name.getField() == field &&
+                        name.getQueryType() == queryType) {
+                        if (name.getData()(0).contains(substr)) {
+                            return Some(name)
+                        }
+                    }
+                }
+                None
             } else {
                 None
             }

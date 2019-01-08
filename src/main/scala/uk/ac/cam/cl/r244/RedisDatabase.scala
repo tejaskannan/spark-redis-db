@@ -23,6 +23,7 @@ class RedisDatabase(_host: String, _port: Int) {
     val cacheManager = new CacheManager(cacheSize, statsManager)
     val stopwords = new Stopwords()
 
+    private val containsCacheThreshold: Int = 4
     private val idField: String = "id"
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
@@ -197,16 +198,26 @@ class RedisDatabase(_host: String, _port: Int) {
 
     def countWithContains(table: String, field: String, substring: String,
                           multiWord: Boolean): Long = {
-        val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](substring))
+        var cacheId = substring
+        if (substring.length > containsCacheThreshold) {
+            cacheId = substring.substring(1, substring.length - 1)
+        }
+        val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](cacheId))
         val filter: String => Boolean = str => str.contains(substring)
-        countWithExact(table, field, filter, cacheName, multiWord)
+        val cacheFiler: String => Boolean = str => str.contains(cacheId)
+        countWith(table, field, filter, cacheFiler, cacheName, multiWord, cacheId == substring)
     }
 
     def getWithContains(table: String, field: String, substring: String,
                         multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
-        val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](substring))
+        var cacheId = substring
+        if (substring.length > containsCacheThreshold) {
+            cacheId = substring.substring(1, substring.length - 1)
+        }
+        val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](cacheId))
         val filter: String => Boolean = str => str.contains(substring)
-        getWithExact(table, field, filter, cacheName, multiWord, resultFields)
+        val cacheFilter: String => Boolean = str => str.contains(cacheId)
+        getWith(table, field, filter, cacheFilter, cacheName, multiWord, resultFields)
     }
 
     def countWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
