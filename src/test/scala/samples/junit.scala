@@ -358,6 +358,70 @@ class AppTest {
     }
 
     @Test
+    def sparkCountContainsMultiWord() {
+        val text = "text"
+        val id0 = "0"
+        val data0 = Map((idField -> id0), (text -> "this is a dog"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "100"
+        val data1 = Map((idField -> id1), (text -> "a dog over there"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val count0: Long = db.countWithContains(table, text, "a dog", true)
+        assertEquals(2, count0)
+
+        Thread.sleep(500)
+
+        val count1: Long = db.countWithContains(table, text, "dog", false)
+        assertEquals(2, count1)
+
+        val cache0Name = cacheFormat.format(table, text, QueryTypes.containsName, "dog")
+        val cache1Name = cacheFormat.format(table, text, QueryTypes.containsName, "a dog")
+        assertTrue(db.redisClient.exists(cache0Name))
+        assertFalse(db.redisClient.exists(cache1Name))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cache0Name)
+    }
+
+    @Test
+    def sparkGetContainsMultiWord() {
+        val text = "text"
+        val id0 = "0"
+        val data0 = Map((idField -> id0), (text -> "this is a horse"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "100"
+        val data1 = Map((idField -> id1), (text -> "a horse over there"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
+
+        val getContains0: List[Map[String, String]] = db.getWithContains(table, text, "a horse", true, List[String]())
+        listMapEquals(dataLst, getContains0)
+
+        Thread.sleep(500)
+
+        val getContains1: List[Map[String, String]] = db.getWithContains(table, text, "horse", false, List[String]())
+        listMapEquals(dataLst, getContains1)
+
+        val cache0Name = cacheFormat.format(table, text, QueryTypes.containsName, "ors")
+        val cache1Name = cacheFormat.format(table, text, QueryTypes.containsName, " hors")
+        assertTrue(db.redisClient.exists(cache0Name))
+        assertFalse(db.redisClient.exists(cache1Name))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cache0Name)
+    }
+
+    @Test
     def sparkCountWithEditDistance() {
         val id0 = "28"
         val data0 = Map((idField -> id0), (firstName -> "tavon"), (lastName -> "austin"))
