@@ -12,6 +12,7 @@ import com.redislabs.provider.redis._
 import scala.util.{Success, Failure, matching}, matching.Regex
 import scala.concurrent.{Future, Promise, Await, duration}, duration.Duration
 import scala.concurrent.ExecutionContext.Implicits.global
+import java.util.concurrent.LinkedBlockingQueue
 
 class RedisDatabase(_host: String, _port: Int) {
     val host: String = _host
@@ -39,6 +40,13 @@ class RedisDatabase(_host: String, _port: Int) {
             .set("spark.redis.auth", "")
     val spark = SparkSession.builder.config(sparkConf).getOrCreate()
     var sparkContext = spark.sparkContext
+
+    val cacheQueue = new LinkedBlockingQueue[CacheQueueEntry]()
+    val cacheWriter = new CacheWriter(cacheQueue, cacheManager, deleteCache, sparkContext)
+
+    // We start the writer in a separate thread
+    val cacheWriterThread = new Thread(cacheWriter)
+    cacheWriterThread.start()
 
     def bulkWrite(table: String, records: List[Map[String, String]]): Long = {
         if (table.isEmpty || records.isEmpty) {
@@ -378,13 +386,6 @@ class RedisDatabase(_host: String, _port: Int) {
             } else {
                 var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
 
-                // All blocks of text which contain a substring form a superset of all words
-                // which contain the substring. We avoid splitting large sets of text by filtering
-                // the text down first.
-                // if (queryType == QueryTypes.containsName) {
-                //     cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
-                // }
-
                 // We can cache multiWord contains queries because the cache words are
                 // limited to a single word (first non stopword)
                 if (!(queryType == QueryTypes.containsName && multiWord)) {
@@ -394,20 +395,20 @@ class RedisDatabase(_host: String, _port: Int) {
                     cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
                 }
 
-                if (cacheEnabled) {
-                    writeToCache(cacheRDD, cacheName)
-                }
+                val count = cacheRDD.filter(entry => filter(entry._2)).count()
 
-                cacheRDD.filter(entry => filter(entry._2)).count()
+                if (cacheEnabled && count > 0) {
+                    cacheQueue.put(new CacheQueueEntry(cacheRDD, cacheName))
+                    // writeToCache(cacheRDD, cacheName)
+                }
+                count
             }
         } else {
             // If the query exactly matches a cache, we can avoid using Spark
             if (cacheOnly) {
-                Future {
-                    val count: Long = redisClient.scard(cacheName.toString).get
-                    statsManager.addCacheHit(cacheName, count.toInt)
-                    count 
-                }   
+                val count: Long = redisClient.scard(cacheName.toString).get
+                statsManager.addCacheHit(cacheName, count.toInt)
+                count  
             } else {
                 val convertedCacheName: CacheName = cache.get
                 // We fetch the indices into memory as the set of indices is small
@@ -452,10 +453,6 @@ class RedisDatabase(_host: String, _port: Int) {
                              .collect().toList
             } else {
                 var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                
-                // if (queryType == QueryTypes.containsName) {
-                //     cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
-                // }
 
                 if (!(queryType == QueryTypes.containsName && multiWord)) {
                     cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
@@ -471,11 +468,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
                 if (cacheEnabled && ids.size > 0) {
                     // Add indices to the cache asychronously
-                    Future {
-                        sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(valueIndex)),
-                                                cacheName.toString)
-                        cacheManager.add(cacheName, deleteCache)
-                    }
+                    cacheQueue.put(new CacheQueueEntry(cacheRDD, cacheName))
                 }
             }
         } else {
