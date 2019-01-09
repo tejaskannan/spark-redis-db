@@ -75,7 +75,7 @@ class AppTest {
 
         Thread.sleep(500)
 
-        val cache0Name = cacheFormat.format(table, firstName, QueryTypes.prefixName, "pa")
+        val cache0Name = cacheFormat.format(table, firstName, QueryTypes.prefixName, "pat")
         val cache1Name = cacheFormat.format(table, lastName, QueryTypes.prefixName, "ma")
         val cache2Name = cacheFormat.format(table, firstName, QueryTypes.prefixName, "a")
         assertTrue(db.redisClient.exists(cache0Name))
