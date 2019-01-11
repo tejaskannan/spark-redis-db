@@ -4,7 +4,7 @@ package uk.ac.cam.cl.r244
  * @author tejaskannan
  */
 
-import com.redis.RedisClient
+import com.redis.{RedisClient, RedisNode, RedisClientPoolByAddress}
 import scala.collection.immutable.{Map, List, Set}
 import scala.collection.mutable.ListBuffer
 import org.apache.spark.{sql, SparkConf, SparkContext, rdd}, sql.SparkSession, rdd.RDD
@@ -18,7 +18,9 @@ class RedisDatabase(_host: String, _port: Int) {
     val host: String = _host
     val port: Int = _port
 
-    val redisClient = new RedisClient(host, port)
+    val nodeName = "spark-redis-db"
+    val redisNode = new RedisNode(nodeName, host, port)
+    val redisClientPool = new RedisClientPoolByAddress(redisNode)
     val statsManager = new StatisticsManager()
     val cacheSize = 128
     val cacheManager = new CacheManager(cacheSize, statsManager)
@@ -42,7 +44,7 @@ class RedisDatabase(_host: String, _port: Int) {
     var sparkContext = spark.sparkContext
 
     val cacheQueue = new LinkedBlockingQueue[CacheQueueEntry]()
-    val cacheWriter = new CacheWriter(cacheQueue, cacheManager, deleteCache, sparkContext)
+    val cacheWriter = new CacheWriter(cacheQueue, cacheManager, deleteCache, host, port)
 
     // We start the writer in a separate thread
     val cacheWriterThread = new Thread(cacheWriter)
@@ -56,7 +58,7 @@ class RedisDatabase(_host: String, _port: Int) {
             val threshold = 1000
             var count: Long = 0
 
-            var queries = new ListBuffer[() => Boolean]()
+            var queries = new ListBuffer[Tuple2[String, Map[String, String]]]()
             for (i <- 0 until records.length) {
                 val record = records(i)
                 if (record.contains(idField)) {
@@ -69,14 +71,18 @@ class RedisDatabase(_host: String, _port: Int) {
                     statsManager.addWrite()
                     statsManager.addCountToTable(table)
 
-                    queries += (() => redisClient.hmset(key, prepareData(record, id)))
+                    queries += new Tuple2(key, prepareData(record, id))
 
                     if (i % threshold == 0 || i == records.length - 1) {
-                        val queryExec = redisClient.pipelineNoMulti(queries)
-                        count += queryExec.map(a => Await.result(a.future, timeout))
-                                          .map(_.asInstanceOf[Boolean])
-                                          .count(_ == true)
-                        queries = new ListBuffer[() => Boolean]()
+                        count += redisClientPool.withClient {
+                            client => {
+                                val queryExec = client.pipelineNoMulti(queries.map(entry => (() => client.hmset(entry._1, entry._2))))
+                                queryExec.map(a => Await.result(a.future, timeout))
+                                         .map(_.asInstanceOf[Boolean])
+                                         .count(_ == true)
+                            }
+                        }
+                        queries = new ListBuffer[Tuple2[String, Map[String, String]]]()
                     }
                 } 
             }
@@ -96,7 +102,11 @@ class RedisDatabase(_host: String, _port: Int) {
             statsManager.addWrite()
             statsManager.addCountToTable(table)
 
-            redisClient.hmset(key, prepareData(data, id))
+            redisClientPool.withClient {
+                client => {
+                    client.hmset(key, prepareData(data, id))
+                }
+            }
         } 
     }
 
@@ -105,17 +115,30 @@ class RedisDatabase(_host: String, _port: Int) {
         removeIdFromCaches(table, id)
         statsManager.addDelete()
         statsManager.removeCountFromTable(table)
-        val result: Option[Long] = redisClient.del(key)
-        if (result == None) 0 else result.get
+
+        redisClientPool.withClient {
+            client => {
+                val result: Option[Long] = client.del(key)
+                if (result == None) 0 else result.get
+            }
+        }
     }
 
     def deleteCache(cacheName: String): Unit = {
-        redisClient.del(cacheName)
+        redisClientPool.withClient {
+            client => {
+                client.del(cacheName)
+            }
+        }
     }
 
     def get(table: String, id: String): Map[String, String] = {
         val key: String = createKey(table, id)
-        sanitizeData(redisClient.hgetall[String, String](key).get, List[String]())
+        redisClientPool.withClient {
+            client => {
+                sanitizeData(client.hgetall[String, String](key).get, List[String]())
+            }
+        }
     }
 
     def countWithPrefix(table: String, field: String, prefix: String,
@@ -124,10 +147,11 @@ class RedisDatabase(_host: String, _port: Int) {
         if (prefix.length > prefixSuffixThreshold) {
             cacheChars = prefix.substring(0, (prefix.length / 2) + 1)
         }
-        val cacheFilter: String => Boolean = str => str.startsWith(cacheChars)
+        val cacheFilter: String => Boolean = str => str.length >= cacheChars.length && str.startsWith(cacheChars)
         val cacheName = new CacheName(table, field, QueryTypes.prefixName, List[String](cacheChars))
-        countWith(table, field, str => str.startsWith(prefix), cacheFilter,
-                  QueryTypes.prefixName, cacheName, multiWord, prefix.length <= 2)
+        val filter: String => Boolean = str => str.startsWith(prefix)
+        countWith(table, field, filter, cacheFilter, QueryTypes.prefixName,
+                  cacheName, multiWord, prefix == cacheChars)
     }
 
     def countWithSuffix(table: String, field: String, suffix: String,
@@ -136,10 +160,11 @@ class RedisDatabase(_host: String, _port: Int) {
         if (suffix.length > prefixSuffixThreshold) {
             cacheChars = suffix.substring(suffix.length / 2, suffix.length + 1)
         }
-        val cacheFilter: String => Boolean = str => str.endsWith(cacheChars)
+        val cacheFilter: String => Boolean = str => str.length >= cacheChars.length && str.endsWith(cacheChars)
         val cacheName = new CacheName(table, field, QueryTypes.suffixName, List[String](cacheChars))
-        countWith(table, field, str => str.endsWith(suffix), cacheFilter,
-                  QueryTypes.suffixName, cacheName, multiWord, suffix.length <= 2)
+        val filter: String => Boolean = str => str.endsWith(suffix)
+        countWith(table, field, filter, cacheFilter, QueryTypes.suffixName,
+                  cacheName, multiWord, suffix == cacheChars)
     }
 
     def countWithRegex(table: String, field: String, regex: String,
@@ -147,8 +172,10 @@ class RedisDatabase(_host: String, _port: Int) {
         val r: Regex = regex.r
         val cacheSubstr: String = Utils.getLongestCharSubstring(regex)
         val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](cacheSubstr))
-        countWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(cacheSubstr),
-                  QueryTypes.containsName, cacheName, multiWord, cacheSubstr == regex)
+        val cacheFilter: String => Boolean = str => str.length >= cacheSubstr.length && str.contains(cacheSubstr)
+        val filter: String => Boolean = str => r.findFirstIn(str) != None
+        countWith(table, field, filter, cacheFilter, QueryTypes.containsName,
+                  cacheName, multiWord, cacheSubstr == regex)
     }
 
     def countWithEditDistance(table: String, field: String, target: String,
@@ -168,9 +195,10 @@ class RedisDatabase(_host: String, _port: Int) {
         if (prefix.length > prefixSuffixThreshold) {
             cacheChars = prefix.substring(0, (prefix.length / 2) + 1)
         }
-        val cacheFilter: String => Boolean = str => str.startsWith(cacheChars)
+        val cacheFilter: String => Boolean = str => str.length >= cacheChars.length && str.startsWith(cacheChars)
+        val filter: String => Boolean = str => str.startsWith(prefix)
         val cacheName = new CacheName(table, field, QueryTypes.prefixName, List[String](cacheChars))
-        getWith(table, field, str => str.startsWith(prefix), cacheFilter, QueryTypes.prefixName,
+        getWith(table, field, filter, cacheFilter, QueryTypes.prefixName,
                 cacheName, multiWord, resultFields)
     }
 
@@ -180,9 +208,10 @@ class RedisDatabase(_host: String, _port: Int) {
         if (suffix.length > prefixSuffixThreshold) {
             cacheChars = suffix.substring(suffix.length / 2, suffix.length + 1)
         }
-        val cacheFilter: String => Boolean = str => str.endsWith(cacheChars)
+        val cacheFilter: String => Boolean = str => str.length >= cacheChars.length && str.endsWith(cacheChars)
+        val filter: String => Boolean = str => str.endsWith(suffix)
         val cacheName = new CacheName(table, field, QueryTypes.suffixName, List[String](cacheChars))
-        getWith(table, field, str => str.endsWith(suffix), cacheFilter, QueryTypes.suffixName,
+        getWith(table, field, filter, cacheFilter, QueryTypes.suffixName,
                 cacheName, multiWord, resultFields)
     }
 
@@ -191,8 +220,10 @@ class RedisDatabase(_host: String, _port: Int) {
         val r: Regex = regex.r
         val cacheSubstr: String = Utils.getLongestCharSubstring(regex)
         val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](cacheSubstr))
-        getWith(table, field, str => r.findFirstIn(str) != None, str => str.contains(cacheSubstr),
-                QueryTypes.containsName, cacheName, multiWord, resultFields)
+        val cacheFilter: String => Boolean = str => str.length >= cacheSubstr.length && str.contains(cacheSubstr)
+        val filter: String => Boolean = str => r.findFirstIn(str) != None
+        getWith(table, field, filter, cacheFilter, QueryTypes.containsName,
+                cacheName, multiWord, resultFields)
     }
 
     def getWithEditDistance(table: String, field: String, target: String, dist: Int,
@@ -214,7 +245,7 @@ class RedisDatabase(_host: String, _port: Int) {
         }
         val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](cacheId))
         val filter: String => Boolean = str => str.contains(substring)
-        val cacheFilter: String => Boolean = str => str.contains(cacheId)
+        val cacheFilter: String => Boolean = str => str.length >= cacheId.length && str.contains(cacheId)
         countWith(table, field, filter, cacheFilter, QueryTypes.containsName,
                   cacheName, multiWord, cacheId == substring)
     }
@@ -227,7 +258,7 @@ class RedisDatabase(_host: String, _port: Int) {
         }
         val cacheName = new CacheName(table, field, QueryTypes.containsName, List[String](cacheId))
         val filter: String => Boolean = str => str.contains(substring)
-        val cacheFilter: String => Boolean = str => str.contains(cacheId)
+        val cacheFilter: String => Boolean = str => str.length >= cacheId.length && str.contains(cacheId)
         getWith(table, field, filter, cacheFilter, QueryTypes.containsName, cacheName,
                 multiWord, resultFields)
     }
@@ -264,20 +295,21 @@ class RedisDatabase(_host: String, _port: Int) {
 
             hashRDD = hashRDD.filter(entry => filter(entry._2))
 
-            val count = hashRDD.count()
+            val ids = hashRDD.map(entry => entry._1.split(":")(1))
+                             .collect().toList
 
-            if (cacheEnabled && !multiWord && count > 0) {
+            if (cacheEnabled && !multiWord && ids.size > 0) {
                 // Add indices to the cache asychronously
-                Future {
-                    sparkContext.toRedisSET(hashRDD.map(entry => entry._1.split(":")(1)),
-                                            cacheName.toString)
-                    cacheManager.add(cacheName, deleteCache)
-                }
+                cacheQueue.put(new CacheQueueEntry(ids, cacheName))
             }
-            count
+            ids.size
         } else {
             if (cacheName == cache.get) {
-                val count: Long = redisClient.scard(cacheName.toString).get
+                val count: Long = redisClientPool.withClient {
+                    client => {
+                        client.scard(cacheName.toString).get
+                    }
+                }
                 statsManager.addCacheHit(cacheName, count.toInt)
                 count
             } else {
@@ -285,9 +317,12 @@ class RedisDatabase(_host: String, _port: Int) {
                 // We are in a case where a smith-waterman score is less than the current
                 // query, so we can reuse those results here
                 // We fetch the indices into memory as the set of indices is small
-                val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
-                                                        .map(x => keyFormat.format(table, x.get))
-                                                        .toArray
+                val indices: Array[String] = redisClientPool.withClient{
+                    client => {
+                        client.smembers[String](convertedCacheName.toString).get
+                              .map(x => keyFormat.format(table, x.get)).toArray
+                    }
+                }
 
                 statsManager.addCacheHit(convertedCacheName, indices.size)
 
@@ -318,32 +353,35 @@ class RedisDatabase(_host: String, _port: Int) {
                 hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
             }
 
-            val idsRDD = hashRDD.filter(entry => filter(entry._2))
-                                .map(entry => entry._1.split(":")(1))
-
+            val cacheRDD = hashRDD.filter(entry => filter(entry._2))
+            val idsRDD = cacheRDD.map(entry => entry._1.split(":")(1))
             ids = idsRDD.collect().toList
 
             if (cacheEnabled && !multiWord && ids.size > 0) {
                 // Add indices to the cache asychronously
-                Future {
-                    sparkContext.toRedisSET(idsRDD, cacheName.toString)
-                    cacheManager.add(cacheName, deleteCache)
-                }
+                cacheQueue.put(new CacheQueueEntry(ids, cacheName))
             }
 
         } else {
             if (cacheName == cache.get) {
-               ids = redisClient.smembers[String](cacheName.toString).get
-                             .map(x => x.get)
-                             .toList
+                ids = redisClientPool.withClient {
+                    client => {
+                        client.smembers[String](cacheName.toString).get
+                              .map(x => x.get)
+                              .toList
+                    }
+                }
             } else {
                 // We are in a case where there is a cache for Smith-Waterman with a lower
                 // minimum score than the one currently being queried
                 val convertedCacheName: CacheName = cache.get
 
-                val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
-                                                        .map(x => keyFormat.format(table, x.get))
-                                                        .toArray
+                val indices: Array[String] = redisClientPool.withClient{
+                    client => {
+                        client.smembers[String](convertedCacheName.toString).get
+                              .map(x => keyFormat.format(table, x.get)).toArray
+                    }
+                }
 
                 statsManager.addCacheHit(convertedCacheName, indices.size)
 
@@ -357,13 +395,16 @@ class RedisDatabase(_host: String, _port: Int) {
 
         }
 
-        val queries = ids.map(id => keyFormat.format(table, id))
-                         .map(key => (() => redisClient.hgetall[String, String](key)))
+        val queries: List[String] = ids.map(id => keyFormat.format(table, id))
 
-        val queryExec = redisClient.pipelineNoMulti(queries)
-        queryExec.map(a => Await.result(a.future, timeout))
-                 .map(_.asInstanceOf[Option[Map[String, String]]])
-                 .map(m => sanitizeData(m.get, resultFields))
+        redisClientPool.withClient {
+            client => {
+                val queryExec = client.pipelineNoMulti(queries.map(key => (() => client.hgetall[String, String](key))))
+                queryExec.map(a => Await.result(a.future, timeout))
+                    .map(_.asInstanceOf[Option[Map[String, String]]])
+                    .map(m => sanitizeData(m.get, resultFields))
+            }
+        }
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -395,26 +436,35 @@ class RedisDatabase(_host: String, _port: Int) {
                     cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
                 }
 
-                val count = cacheRDD.filter(entry => filter(entry._2)).count()
+                val ids = cacheRDD.filter(entry => filter(entry._2))
+                                    .map(entry => entry._1.split(":")(1))
+                                    .collect().toList
 
-                if (cacheEnabled && count > 0) {
-                    cacheQueue.put(new CacheQueueEntry(cacheRDD, cacheName))
+                if (cacheEnabled && ids.size > 0) {
+                    cacheQueue.put(new CacheQueueEntry(ids, cacheName))
                     // writeToCache(cacheRDD, cacheName)
                 }
-                count
+                ids.size
             }
         } else {
             // If the query exactly matches a cache, we can avoid using Spark
             if (cacheOnly) {
-                val count: Long = redisClient.scard(cacheName.toString).get
+                val count: Long = redisClientPool.withClient {
+                    client => {
+                        client.scard(cacheName.toString).get
+                    }
+                }
                 statsManager.addCacheHit(cacheName, count.toInt)
                 count  
             } else {
                 val convertedCacheName: CacheName = cache.get
                 // We fetch the indices into memory as the set of indices is small
-                val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
-                                                        .map(x => keyFormat.format(table, x.get))
-                                                        .toArray
+                val indices: Array[String] = redisClientPool.withClient{
+                    client => {
+                        client.smembers[String](convertedCacheName.toString).get
+                              .map(x => keyFormat.format(table, x.get)).toArray
+                    }
+                }
 
                 statsManager.addCacheHit(convertedCacheName, indices.size)
 
@@ -468,14 +518,17 @@ class RedisDatabase(_host: String, _port: Int) {
 
                 if (cacheEnabled && ids.size > 0) {
                     // Add indices to the cache asychronously
-                    cacheQueue.put(new CacheQueueEntry(cacheRDD, cacheName))
+                    cacheQueue.put(new CacheQueueEntry(ids, cacheName))
                 }
             }
         } else {
             val convertedCacheName: CacheName = cache.get
-            val indices: Array[String] = redisClient.smembers[String](convertedCacheName.toString).get
-                                                    .map(x => keyFormat.format(table, x.get))
-                                                    .toArray
+            val indices: Array[String] = redisClientPool.withClient{
+                client => {
+                    client.smembers[String](convertedCacheName.toString).get
+                          .map(x => keyFormat.format(table, x.get)).toArray
+                }
+            }
 
             statsManager.addCacheHit(convertedCacheName, indices.size)
 
@@ -494,18 +547,25 @@ class RedisDatabase(_host: String, _port: Int) {
             }
         }
 
-        val queries = ids.map(id => keyFormat.format(table, id))
-                         .map(key => (() => redisClient.hgetall[String, String](key)))
-        
-        val queryExec = redisClient.pipelineNoMulti(queries)
-        queryExec.map(a => Await.result(a.future, timeout))
-                 .map(_.asInstanceOf[Option[Map[String, String]]])
-                 .map(m => sanitizeData(m.get, resultFields))
+        val queries: List[String] = ids.map(id => keyFormat.format(table, id))
+
+        redisClientPool.withClient {
+            client => {
+                val queryExec = client.pipelineNoMulti(queries.map(key => (() => client.hgetall[String, String](key))))
+                queryExec.map(a => Await.result(a.future, timeout))
+                    .map(_.asInstanceOf[Option[Map[String, String]]])
+                    .map(m => sanitizeData(m.get, resultFields))
+            }
+        }
     }
 
     private def removeIdFromCaches(table: String, id: String): Unit = {
         val cacheNames: List[String] = cacheManager.getCacheNamesWithTable(table)
-        cacheNames.foreach(name => redisClient.srem(name, id))
+        redisClientPool.withClient {
+            client => {
+                cacheNames.foreach(name => client.srem(name, id))
+            }
+        }
     }
 
     private def updateCaches(table: String, id: String, oldData: Map[String, String],
@@ -513,7 +573,11 @@ class RedisDatabase(_host: String, _port: Int) {
         val fieldsToUpdate = newData.keys.toList
         for (field <- fieldsToUpdate) {
             val cacheNames: List[String] = cacheManager.getCacheNamesWith(table, field)
-            cacheNames.foreach(name => redisClient.srem(name, id))
+            redisClientPool.withClient {
+                client => {
+                    cacheNames.foreach(name => client.srem(name, id))
+                }
+            }
         }
 
         val prefixCaches = new ListBuffer[String]()
@@ -525,7 +589,6 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         }
-        val prefixAdds = prefixCaches.map(name => (() => redisClient.sadd(name, id)))
 
         val suffixCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
@@ -536,7 +599,6 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         }
-        val suffixAdds = suffixCaches.map(name => (() => redisClient.sadd(name, id)))
 
         val containsCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
@@ -547,7 +609,6 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         }
-        val containsAdds = containsCaches.map(name => (() => redisClient.sadd(name, id)))
 
         val editDistCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
@@ -560,7 +621,6 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         }
-        val editDistAdds = editDistCaches.map(name => (() => redisClient.sadd(name, id)))
 
         val swCaches = new ListBuffer[String]()
         for (field <- fieldsToUpdate) {
@@ -573,13 +633,22 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         }
-        val swAdds = swCaches.map(name => (() => redisClient.sadd(name, id)))
 
-        val addExec = redisClient.pipelineNoMulti(prefixAdds ++ suffixAdds ++ containsAdds ++
-                                                  editDistAdds ++ swAdds)
-        addExec.map(a => Await.result(a.future, timeout * 10))
-               .map(_.asInstanceOf[Option[Long]])
-               .map(_.get)
+        redisClientPool.withClient {
+            client => {
+                val prefixAdds = prefixCaches.map(name => (() => client.sadd(name, id)))
+                val suffixAdds = suffixCaches.map(name => (() => client.sadd(name, id)))
+                val containsAdds = containsCaches.map(name => (() => client.sadd(name, id)))
+                val editDistAdds = editDistCaches.map(name => (() => client.sadd(name, id)))
+                val swAdds = swCaches.map(name => (() => client.sadd(name, id)))
+
+                val addExec = client.pipelineNoMulti(prefixAdds ++ suffixAdds ++ containsAdds ++
+                                          editDistAdds ++ swAdds)
+                addExec.map(a => Await.result(a.future, timeout * 10))
+                       .map(_.asInstanceOf[Option[Long]])
+                       .map(_.get)
+            }
+        }
     }
 
     private def prepareData(data: Map[String, String], id: String): Map[String, String] = {
@@ -610,13 +679,4 @@ class RedisDatabase(_host: String, _port: Int) {
         }
         return substring
     }
-
-    private def writeToCache(cacheRDD: RDD[(String, String)], cacheName: CacheName): Future[Unit] = {
-        Future {
-            sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
-                                    cacheName.toString())
-            cacheManager.add(cacheName, deleteCache)
-        }
-    }
-
 }

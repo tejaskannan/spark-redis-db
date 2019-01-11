@@ -3,22 +3,26 @@ package uk.ac.cam.cl.r244
 import java.util.concurrent.BlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 import org.apache.spark.SparkContext
+import com.redis.RedisClient
 import org.apache.spark.rdd.RDD
 import com.redislabs.provider.redis._
 
 class CacheWriter(queue: BlockingQueue[CacheQueueEntry], cacheManager: CacheManager,
-				  deleteCache: String => Unit, sparkContext: SparkContext) extends Runnable {
+				  deleteCache: String => Unit, host: String, port: Int) extends Runnable {
 
 	private val running: AtomicBoolean = new AtomicBoolean(true)
 
+	// We can keep a single client because we create caches in a synchronous manner
+	private val redisClient = new RedisClient(host, port)
+
 	def run() {
-		while (running) {
+		while (running.get()) {
 			val cacheEntry: CacheQueueEntry = queue.take()
-			val cacheRDD: RDD[(String, String)] = cacheEntry.rdd
-			val cacheName: CacheName = cacheEntry.name
-			sparkContext.toRedisSET(cacheRDD.map(entry => entry._1.split(":")(1)),
-                                    cacheName.toString())
-            cacheManager.add(cacheName, deleteCache)
+			if (cacheEntry.ids.size > 0) {
+				val ids = cacheEntry.ids.map(id => id.toString)
+				redisClient.sadd(cacheEntry.name, ids(0), ids:_*)
+				cacheManager.add(cacheEntry.name, deleteCache)
+			}
 		}
 	}
 
