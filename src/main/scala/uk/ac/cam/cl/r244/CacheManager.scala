@@ -58,7 +58,7 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
             } else {
                 None
             }
-        }        
+        }
     }
 
     def setSize(newSize: Int): Unit = {

@@ -42,8 +42,14 @@ object App {
 
     private val result = "result"
 
+    private val redisHost = "localhost"
+    private val redisPort = 6379
+
+    private val serviceHost = "localhost"
+    private val servicePort = 8080
+
     def main(args : Array[String]) {
-        val db = new RedisDatabase("localhost", 6379)
+        val db = new RedisDatabase(redisHost, redisPort)
 
         implicit val system = ActorSystem()
         implicit val materializer = ActorMaterializer()
@@ -120,9 +126,9 @@ object App {
                 }
             }
 
-        val bindingFuture = Http().bindAndHandle(route, "localhost", 8080)
+        val bindingFuture = Http().bindAndHandle(route, serviceHost, servicePort)
 
-        println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
+        println(s"Server online at http://" + serviceHost + ":" + servicePort.toString + "/\nPress RETURN to stop...")
         StdIn.readLine() // let it run until user presses return
 
         // Shutdown the Cache Writer Thread
@@ -133,7 +139,7 @@ object App {
 
         bindingFuture
           .flatMap(_.unbind()) // trigger unbinding from the port
-          .onComplete(_ => system.terminate()) // and shutdown when done 
+          .onComplete(_ => system.terminate()) // and shutdown when done
     }
 
     def handleCount(query: ReadQuery, db: RedisDatabase): Long = {

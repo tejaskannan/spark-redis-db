@@ -7,5 +7,5 @@ import scala.collection.immutable.{List, Map}
 final case class GetResult(result: List[Map[String, String]], time: Double)
 
 object GetResultProtocol extends DefaultJsonProtocol {
-	implicit val getFormat = jsonFormat2(GetResult) 
+    implicit val getFormat = jsonFormat2(GetResult)
 }
