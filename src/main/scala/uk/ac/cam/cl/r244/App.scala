@@ -124,6 +124,13 @@ object App {
 
         println(s"Server online at http://localhost:8080/\nPress RETURN to stop...")
         StdIn.readLine() // let it run until user presses return
+
+        // Shutdown the Cache Writer Thread
+        db.cacheWriter.shutdown()
+        // This is a hack to unblock the thread and get it to check its exit condition
+        val shutdownName = new CacheName("", "", "", List[String]())
+        db.cacheQueue.put(new CacheQueueEntry(List[String](), shutdownName))
+
         bindingFuture
           .flatMap(_.unbind()) // trigger unbinding from the port
           .onComplete(_ => system.terminate()) // and shutdown when done 
