@@ -28,6 +28,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private val containsCacheThreshold: Int = 4
     private val prefixSuffixThreshold: Int = 3
+    private val bulkWriteThreshold: Int = 1000
     private val idField: String = "id"
     private val keyFormat: String = "%s:%s"
     private val tableQueryFormat: String = "%s:*"
@@ -55,7 +56,6 @@ class RedisDatabase(_host: String, _port: Int) {
             0
         } else {
             // We insert 1000 records at a time
-            val threshold = 1000
             var count: Long = 0
 
             var queries = new ListBuffer[Tuple2[String, Map[String, String]]]()
@@ -73,7 +73,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
                     queries += new Tuple2(key, prepareData(record, id))
 
-                    if (i % threshold == 0 || i == records.length - 1) {
+                    if (i % bulkWriteThreshold == 0 || i == records.length - 1) {
                         count += redisClientPool.withClient {
                             client => {
                                 val queryExec = client.pipelineNoMulti(queries.map(entry => (() => client.hmset(entry._1, entry._2))))
@@ -199,7 +199,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val filter: String => Boolean = str => str.startsWith(prefix)
         val cacheName = new CacheName(table, field, QueryTypes.prefixName, List[String](cacheChars))
         getWith(table, field, filter, cacheFilter, QueryTypes.prefixName,
-                cacheName, multiWord, resultFields)
+                cacheName, multiWord, prefix == cacheChars, resultFields)
     }
 
     def getWithSuffix(table: String, field: String, suffix: String, multiWord: Boolean,
@@ -212,7 +212,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val filter: String => Boolean = str => str.endsWith(suffix)
         val cacheName = new CacheName(table, field, QueryTypes.suffixName, List[String](cacheChars))
         getWith(table, field, filter, cacheFilter, QueryTypes.suffixName,
-                cacheName, multiWord, resultFields)
+                cacheName, multiWord, suffix == cacheChars, resultFields)
     }
 
     def getWithRegex(table: String, field: String, regex: String, multiWord: Boolean,
@@ -223,7 +223,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val cacheFilter: String => Boolean = str => str.length >= cacheSubstr.length && str.contains(cacheSubstr)
         val filter: String => Boolean = str => r.findFirstIn(str) != None
         getWith(table, field, filter, cacheFilter, QueryTypes.containsName,
-                cacheName, multiWord, resultFields)
+                cacheName, multiWord, regex == cacheSubstr, resultFields)
     }
 
     def getWithEditDistance(table: String, field: String, target: String, dist: Int,
@@ -234,7 +234,7 @@ class RedisDatabase(_host: String, _port: Int) {
             List[String](minLength.toString, maxLength.toString))
         val cacheFilter: String => Boolean = str => (minLength <= str.length && str.length <= maxLength)
         getWith(table, field, str => Utils.editDistance(str, target, dist), cacheFilter,
-                QueryTypes.editDistName, cacheName, multiWord, resultFields)
+                QueryTypes.editDistName, cacheName, multiWord, false, resultFields)
     }
 
     def countWithContains(table: String, field: String, substring: String,
@@ -260,7 +260,7 @@ class RedisDatabase(_host: String, _port: Int) {
         val filter: String => Boolean = str => str.contains(substring)
         val cacheFilter: String => Boolean = str => str.length >= cacheId.length && str.contains(cacheId)
         getWith(table, field, filter, cacheFilter, QueryTypes.containsName, cacheName,
-                multiWord, resultFields)
+                multiWord, cacheId == substring, resultFields)
     }
 
     def countWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
@@ -484,7 +484,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
     private def getWith(table: String, field: String, filter: String => Boolean,
                         cacheFilter: String => Boolean, queryType: String, cacheName: CacheName,
-                        multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
+                        multiWord: Boolean, cacheOnly: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val fieldPrefix: String = keyFormat.format(field, "")
         var ids: List[String] = List()
         val valueIndex: Int = 1
@@ -532,18 +532,22 @@ class RedisDatabase(_host: String, _port: Int) {
 
             statsManager.addCacheHit(convertedCacheName, indices.size)
 
-            val hashRDD = sparkContext.fromRedisHash(indices)
-            val fieldRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-
-            if (multiWord) {
-                ids = fieldRDD.filter(entry => filter(entry._2))
-                              .map(entry => entry._1.split(":")(valueIndex))
-                              .collect().toList
+            if (cacheOnly) {
+                ids = indices.toList
             } else {
-                ids = fieldRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                              .filter(entry => filter(entry._2))
-                              .map(entry => entry._1.split(":")(valueIndex))
-                              .collect().toList
+                val hashRDD = sparkContext.fromRedisHash(indices)
+                val fieldRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+
+                if (multiWord) {
+                    ids = fieldRDD.filter(entry => filter(entry._2))
+                                  .map(entry => entry._1.split(":")(valueIndex))
+                                  .collect().toList
+                } else {
+                    ids = fieldRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
+                                  .filter(entry => filter(entry._2))
+                                  .map(entry => entry._1.split(":")(valueIndex))
+                                  .collect().toList
+                }
             }
         }
 
