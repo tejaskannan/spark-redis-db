@@ -22,10 +22,10 @@ class RedisDatabase(_host: String, _port: Int) {
     val redisNode = new RedisNode(nodeName, host, port)
     val redisClientPool = new RedisClientPoolByAddress(redisNode)
     val statsManager = new StatisticsManager()
-    val cacheSize = 128
+    val cacheSize = 64
     val cacheManager = new CacheManager(cacheSize, statsManager)
     val stopwords = new Stopwords()
-    var maxCacheThreshold: Double = 0.8
+    var maxCacheThreshold: Double = 0.6
 
 
     private val containsCacheThreshold: Int = 4
@@ -298,12 +298,12 @@ class RedisDatabase(_host: String, _port: Int) {
 
             // We don't cache multiword queries because they are a subset
             // of the total results (for single-word queries)
-            if (multiWord && queryType != QueryTypes.containsName) {
+            if (multiWord && queryType != QueryTypes.containsName && queryType != QueryTypes.editDistName) {
                 hashRDD.filter(entry => filter(entry._2)).count()
             } else {
                 val maxCount = (statsManager.getCountForTable(table) * maxCacheThreshold).toInt
 
-                if (multiWord && queryType == QueryTypes.containsName) {
+                if (multiWord && (queryType == QueryTypes.containsName || queryType == QueryTypes.editDistName)) {
                     val cacheRDD = hashRDD.filter(entry => cacheFilter(entry._2))
                     cacheRDD.persist()
                     val cacheIds = cacheRDD.map(entry => entry._1.split(":")(1))
@@ -341,8 +341,9 @@ class RedisDatabase(_host: String, _port: Int) {
                 }
             }
         } else {
+            val convertedCacheName: CacheName = cache.get
             // If the query exactly matches a cache, we can avoid using Spark
-            if (cacheOnly) {
+            if (cacheOnly && convertedCacheName == cacheName) {
                 val count: Long = redisClientPool.withClient {
                     client => {
                         client.scard(cacheName.toString).get
@@ -351,7 +352,6 @@ class RedisDatabase(_host: String, _port: Int) {
                 statsManager.addCacheHit(cacheName, count.toInt)
                 count  
             } else {
-                val convertedCacheName: CacheName = cache.get
                 // We fetch the indices into memory as the set of indices is small
                 val indices: Array[String] = redisClientPool.withClient{
                     client => {
@@ -396,14 +396,14 @@ class RedisDatabase(_host: String, _port: Int) {
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
                                       .filter(entry => entry._1.startsWith(fieldPrefix))
 
-            if (multiWord && queryType != QueryTypes.containsName) {
+            if (multiWord && queryType != QueryTypes.containsName && queryType != QueryTypes.editDistName) {
                 ids = hashRDD.filter(entry => filter(entry._2))
                              .map(entry => entry._1.split(":")(1))
                              .collect().toList
             } else {
                 val maxCount = (statsManager.getCountForTable(table) * maxCacheThreshold).toInt
 
-                if (multiWord && queryType == QueryTypes.containsName) {
+                if (multiWord && (queryType == QueryTypes.containsName || queryType == QueryTypes.editDistName)) {
                     val cacheRDD = hashRDD.filter(entry => cacheFilter(entry._2))
                     cacheRDD.persist()
                     val cacheIds = cacheRDD.map(entry => entry._1.split(":")(1))
@@ -450,7 +450,7 @@ class RedisDatabase(_host: String, _port: Int) {
 
             statsManager.addCacheHit(convertedCacheName, indices.size)
 
-            if (cacheOnly) {
+            if (cacheOnly && convertedCacheName == cacheName) {
                 ids = indices.toList
             } else {
                 val hashRDD = sparkContext.fromRedisHash(indices)
