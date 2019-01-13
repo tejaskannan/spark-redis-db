@@ -25,6 +25,8 @@ class RedisDatabase(_host: String, _port: Int) {
     val cacheSize = 128
     val cacheManager = new CacheManager(cacheSize, statsManager)
     val stopwords = new Stopwords()
+    var maxCacheThreshold: Double = 0.8
+
 
     private val containsCacheThreshold: Int = 4
     private val prefixSuffixThreshold: Int = 3
@@ -158,7 +160,7 @@ class RedisDatabase(_host: String, _port: Int) {
                         multiWord: Boolean = false): Long = {
         var cacheChars: String = suffix
         if (suffix.length > prefixSuffixThreshold) {
-            cacheChars = suffix.substring(suffix.length / 2, suffix.length + 1)
+            cacheChars = suffix.substring(suffix.length / 2)
         }
         val cacheFilter: String => Boolean = str => str.length >= cacheChars.length && str.endsWith(cacheChars)
         val cacheName = new CacheName(table, field, QueryTypes.suffixName, List[String](cacheChars))
@@ -206,7 +208,7 @@ class RedisDatabase(_host: String, _port: Int) {
                       resultFields: List[String]): List[Map[String, String]] = {
         var cacheChars: String = suffix
         if (suffix.length > prefixSuffixThreshold) {
-            cacheChars = suffix.substring(suffix.length / 2, suffix.length + 1)
+            cacheChars = suffix.substring(suffix.length / 2)
         }
         val cacheFilter: String => Boolean = str => str.length >= cacheChars.length && str.endsWith(cacheChars)
         val filter: String => Boolean = str => str.endsWith(suffix)
@@ -267,144 +269,18 @@ class RedisDatabase(_host: String, _port: Int) {
                                multiWord: Boolean): Long = {
         val cacheName = new CacheName(table, field, QueryTypes.swName, List[String](target, minScore.toString))
         val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
-        countWithExact(table, field, filter, cacheName, multiWord)
+        val cacheFilter: String => Boolean = str => true
+        countWith(table, field, filter, cacheFilter, QueryTypes.swName,
+                  cacheName, multiWord, false)
     }
 
     def getWithSmithWaterman(table: String, field: String, target: String, minScore: Int,
                              multiWord: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val cacheName = new CacheName(table, field, QueryTypes.swName, List[String](target, minScore.toString))
         val filter: String => Boolean = str => Utils.smithWatermanLinear(str, target, minScore)
-        getWithExact(table, field, filter, cacheName, multiWord, resultFields)
-    }
-
-
-    private def countWithExact(table: String, field: String, filter: String => Boolean,
-                               cacheName: CacheName, multiWord: Boolean): Long = {
-        val fieldPrefix: String = keyFormat.format(field, "")
-
-        statsManager.addRead()
-
-        val cache: Option[CacheName] = cacheManager.get(cacheName)
-        if (cache == None) {
-            var hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
-            hashRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-
-            if (!multiWord) {
-                hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-            }
-
-            hashRDD = hashRDD.filter(entry => filter(entry._2))
-
-            val ids = hashRDD.map(entry => entry._1.split(":")(1))
-                             .collect().toList
-
-            if (cacheEnabled && !multiWord && ids.size > 0) {
-                // Add indices to the cache asychronously
-                cacheQueue.put(new CacheQueueEntry(ids, cacheName))
-            }
-            ids.size
-        } else {
-            if (cacheName == cache.get) {
-                val count: Long = redisClientPool.withClient {
-                    client => {
-                        client.scard(cacheName.toString).get
-                    }
-                }
-                statsManager.addCacheHit(cacheName, count.toInt)
-                count
-            } else {
-                val convertedCacheName: CacheName = cache.get
-                // We are in a case where a smith-waterman score is less than the current
-                // query, so we can reuse those results here
-                // We fetch the indices into memory as the set of indices is small
-                val indices: Array[String] = redisClientPool.withClient{
-                    client => {
-                        client.smembers[String](convertedCacheName.toString).get
-                              .map(x => keyFormat.format(table, x.get)).toArray
-                    }
-                }
-
-                statsManager.addCacheHit(convertedCacheName, indices.size)
-
-                val hashRDD = sparkContext.fromRedisHash(indices)
-                hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                       .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                       .filter(entry => filter(entry._2)).count()
-            }
-
-        }
-    }
-
-    private def getWithExact(table: String, field: String, filter: String => Boolean,
-                             cacheName: CacheName, multiWord: Boolean,
-                             resultFields: List[String]): List[Map[String, String]] = {
-        val fieldPrefix: String = keyFormat.format(field, "")
-
-        statsManager.addRead()
-
-        var ids: List[String] = List()
-
-        val cache: Option[CacheName] = cacheManager.get(cacheName)
-        if (cache == None) {
-            var hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
-            hashRDD = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-
-            if (!multiWord) {
-                hashRDD = hashRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-            }
-
-            val cacheRDD = hashRDD.filter(entry => filter(entry._2))
-            val idsRDD = cacheRDD.map(entry => entry._1.split(":")(1))
-            ids = idsRDD.collect().toList
-
-            if (cacheEnabled && !multiWord && ids.size > 0) {
-                // Add indices to the cache asychronously
-                cacheQueue.put(new CacheQueueEntry(ids, cacheName))
-            }
-
-        } else {
-            if (cacheName == cache.get) {
-                ids = redisClientPool.withClient {
-                    client => {
-                        client.smembers[String](cacheName.toString).get
-                              .map(x => x.get)
-                              .toList
-                    }
-                }
-            } else {
-                // We are in a case where there is a cache for Smith-Waterman with a lower
-                // minimum score than the one currently being queried
-                val convertedCacheName: CacheName = cache.get
-
-                val indices: Array[String] = redisClientPool.withClient{
-                    client => {
-                        client.smembers[String](convertedCacheName.toString).get
-                              .map(x => keyFormat.format(table, x.get)).toArray
-                    }
-                }
-
-                statsManager.addCacheHit(convertedCacheName, indices.size)
-
-                val hashRDD = sparkContext.fromRedisHash(indices)
-                ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                             .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                             .filter(entry => filter(entry._2))
-                             .map(entry => entry._1.split(":")(1))
-                             .collect().toList
-            }
-
-        }
-
-        val queries: List[String] = ids.map(id => keyFormat.format(table, id))
-
-        redisClientPool.withClient {
-            client => {
-                val queryExec = client.pipelineNoMulti(queries.map(key => (() => client.hgetall[String, String](key))))
-                queryExec.map(a => Await.result(a.future, timeout))
-                    .map(_.asInstanceOf[Option[Map[String, String]]])
-                    .map(m => sanitizeData(m.get, resultFields))
-            }
-        }
+        val cacheFilter: String => Boolean = str => true
+        getWith(table, field, filter, cacheFilter, QueryTypes.swName,
+                cacheName, multiWord, false, resultFields)
     }
 
     private def countWith(table: String, field: String, filter: String => Boolean,
@@ -417,34 +293,52 @@ class RedisDatabase(_host: String, _port: Int) {
         val cache: Option[CacheName] = cacheManager.get(cacheName)
 
         if (cache == None) {
-            val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
+            var hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
+                                      .filter(entry => entry._1.startsWith(fieldPrefix))
 
             // We don't cache multiword queries because they are a subset
             // of the total results (for single-word queries)
             if (multiWord && queryType != QueryTypes.containsName) {
-                hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                       .filter(entry => filter(entry._2)).count()
+                hashRDD.filter(entry => filter(entry._2)).count()
             } else {
-                var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                val maxCount = (statsManager.getCountForTable(table) * maxCacheThreshold).toInt
 
-                // We can cache multiWord contains queries because the cache words are
-                // limited to a single word (first non stopword)
-                if (!(queryType == QueryTypes.containsName && multiWord)) {
-                    cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                                   .filter(entry => cacheFilter(entry._2))
+                if (multiWord && queryType == QueryTypes.containsName) {
+                    val cacheRDD = hashRDD.filter(entry => cacheFilter(entry._2))
+                    cacheRDD.persist()
+                    val cacheIds = cacheRDD.map(entry => entry._1.split(":")(1))
+                                           .collect().toList
+
+                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                        cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
+                    }
+
+                    val count = cacheRDD.filter(entry => filter(entry._2))
+                                        .count()
+                    cacheRDD.unpersist()
+                    count
                 } else {
-                    cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
-                }
+                    val cacheRDD = hashRDD.flatMap(entry => {
+                                        val id = entry._1.split(":")(1)
+                                        val words = entry._2.split("\\s+").toSet
+                                        words.map(word => (word, id))
+                                      })
+                                     .groupByKey()
+                                     .filter(entry => cacheFilter(entry._1))
+                    cacheRDD.persist()
+                    val cacheIds = cacheRDD.flatMap(entry => entry._2).collect().toList
 
-                val ids = cacheRDD.filter(entry => filter(entry._2))
-                                    .map(entry => entry._1.split(":")(1))
-                                    .collect().toList
+                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                        cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
+                    }
 
-                if (cacheEnabled && ids.size > 0) {
-                    cacheQueue.put(new CacheQueueEntry(ids, cacheName))
-                    // writeToCache(cacheRDD, cacheName)
+                    val count = cacheRDD.filter(entry => filter(entry._1))
+                                        .flatMap(entry => entry._2)
+                                        .distinct().count()
+
+                    cacheRDD.unpersist()
+                    count
                 }
-                ids.size
             }
         } else {
             // If the query exactly matches a cache, we can avoid using Spark
@@ -474,9 +368,15 @@ class RedisDatabase(_host: String, _port: Int) {
                            .filter(entry => filter(entry._2)).count()
 
                 } else {
-                    hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                       .flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                       .filter(entry => filter(entry._2)).count()
+                    hashRDD.flatMap(entry => {
+                            val id = entry._1.split(":")(1)
+                            val words = entry._2.split("\\s+").toSet
+                            words.map(word => (word, id))
+                          })
+                         .groupByKey()
+                         .filter(entry => filter(entry._1))
+                         .flatMap(entry => entry._2)
+                         .distinct().count()
                 }
             }
         }
@@ -487,7 +387,6 @@ class RedisDatabase(_host: String, _port: Int) {
                         multiWord: Boolean, cacheOnly: Boolean, resultFields: List[String]): List[Map[String, String]] = {
         val fieldPrefix: String = keyFormat.format(field, "")
         var ids: List[String] = List()
-        val valueIndex: Int = 1
 
         statsManager.addRead()
 
@@ -495,30 +394,49 @@ class RedisDatabase(_host: String, _port: Int) {
 
         if (cache == None) {
             val hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
+                                      .filter(entry => entry._1.startsWith(fieldPrefix))
 
             if (multiWord && queryType != QueryTypes.containsName) {
-                ids = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                             .filter(entry => filter(entry._2))
-                             .map(entry => entry._1.split(":")(valueIndex))
+                ids = hashRDD.filter(entry => filter(entry._2))
+                             .map(entry => entry._1.split(":")(1))
                              .collect().toList
             } else {
-                var cacheRDD: RDD[(String, String)] = hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
+                val maxCount = (statsManager.getCountForTable(table) * maxCacheThreshold).toInt
 
-                if (!(queryType == QueryTypes.containsName && multiWord)) {
-                    cacheRDD = cacheRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                                   .filter(entry => cacheFilter(entry._2))
+                if (multiWord && queryType == QueryTypes.containsName) {
+                    val cacheRDD = hashRDD.filter(entry => cacheFilter(entry._2))
+                    cacheRDD.persist()
+                    val cacheIds = cacheRDD.map(entry => entry._1.split(":")(1))
+                                           .collect().toList
+
+                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                        cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
+                    }
+
+                    ids = cacheRDD.filter(entry => filter(entry._2))
+                                  .map(entry => entry._1.split(":")(1))
+                                  .collect().toList
+                    cacheRDD.unpersist()
                 } else {
-                    cacheRDD = cacheRDD.filter(entry => cacheFilter(entry._2))
-                }
+                    val cacheRDD = hashRDD.flatMap(entry => {
+                                        val id = entry._1.split(":")(1)
+                                        val words = entry._2.split("\\s+").toSet
+                                        words.map(word => (word, id))
+                                      })
+                                     .groupByKey()
+                                     .filter(entry => cacheFilter(entry._1))
+                    cacheRDD.persist()
+                    val cacheIds = cacheRDD.flatMap(entry => entry._2).collect().toList
 
+                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                        cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
+                    }
 
-                ids = cacheRDD.filter(entry => filter(entry._2))
-                              .map(entry => entry._1.split(":")(valueIndex))
-                              .collect().toList
+                    ids = cacheRDD.filter(entry => filter(entry._1))
+                                        .flatMap(entry => entry._2)
+                                        .distinct().collect().toList
 
-                if (cacheEnabled && ids.size > 0) {
-                    // Add indices to the cache asychronously
-                    cacheQueue.put(new CacheQueueEntry(ids, cacheName))
+                    cacheRDD.unpersist()
                 }
             }
         } else {
@@ -540,13 +458,18 @@ class RedisDatabase(_host: String, _port: Int) {
 
                 if (multiWord) {
                     ids = fieldRDD.filter(entry => filter(entry._2))
-                                  .map(entry => entry._1.split(":")(valueIndex))
+                                  .map(entry => entry._1.split(":")(1))
                                   .collect().toList
                 } else {
-                    ids = fieldRDD.flatMap(entry => entry._2.split("\\s+").map(word => (entry._1, word)).toSet.toList)
-                                  .filter(entry => filter(entry._2))
-                                  .map(entry => entry._1.split(":")(valueIndex))
-                                  .collect().toList
+                    ids = hashRDD.flatMap(entry => {
+                                    val id = entry._1.split(":")(1)
+                                    val words = entry._2.split("\\s+").toSet
+                                    words.map(word => (word, id))
+                                  })
+                                 .groupByKey()
+                                 .filter(entry => filter(entry._1))
+                                 .flatMap(entry => entry._2)
+                                 .distinct().collect().toList
                 }
             }
         }

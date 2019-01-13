@@ -11,7 +11,12 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
     // Used to store the names of cached objects for quick lookup
     // The values are the utility scores of each entry. Since the cache
     // is small, iterating over the entire cache for eviction should be okay
-    val cache: ConcurrentHashMap[CacheName, Byte] = new ConcurrentHashMap()
+    var cache: ConcurrentHashMap[CacheName, Byte] = new ConcurrentHashMap()
+
+    def flush(): Unit = {
+        cache = new ConcurrentHashMap()
+        statsManager.reset()
+    }
 
     def get(key: CacheName): Option[CacheName] = {
         if (cache.containsKey(key)) {

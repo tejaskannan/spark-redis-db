@@ -30,6 +30,7 @@ class AppTest {
         val host: String = "localhost"
         db = new RedisDatabase(host, port)
         db.cacheManager.setSize(16)
+        db.maxCacheThreshold = 1
         redisClient = new RedisClient(host, port)
     }
 
@@ -333,7 +334,7 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
 
         val getContains0: List[Map[String, String]] = db.getWithContains(table, firstName, "ame", false, List[String]())
         listMapEquals(dataLst, getContains0)
@@ -404,15 +405,13 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
-
         val getContains0: List[Map[String, String]] = db.getWithContains(table, text, "a horse", true, List[String]())
-        listMapEquals(dataLst, getContains0)
+        listMapEquals(List[Map[String, String]](data1, data0), getContains0)
 
         Thread.sleep(500)
 
         val getContains1: List[Map[String, String]] = db.getWithContains(table, text, "horse", false, List[String]())
-        listMapEquals(dataLst, getContains1)
+        listMapEquals(List[Map[String, String]](data0, data1), getContains1)
 
         val cache0Name = cacheFormat.format(table, text, QueryTypes.containsName, "ors")
         val cache1Name = cacheFormat.format(table, text, QueryTypes.containsName, " hors")
@@ -473,7 +472,7 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
 
         val getContains0: List[Map[String, String]] = db.getWithEditDistance(table, firstName, "tavlor", 2, false, List[String]())
         listMapEquals(dataLst, getContains0)
@@ -549,7 +548,7 @@ class AppTest {
         val write1: Boolean = db.write(table, id1, data1)
         assertTrue(write1)
 
-        val dataLst: List[Map[String, String]] = List[Map[String, String]](data1, data0)
+        val dataLst: List[Map[String, String]] = List[Map[String, String]](data0, data1)
 
         val seq = "aacgatc"
 

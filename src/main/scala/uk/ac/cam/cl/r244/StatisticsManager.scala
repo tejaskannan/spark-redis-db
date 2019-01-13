@@ -12,18 +12,29 @@ import collection.JavaConversions._
 
 class StatisticsManager {
 
-    private val numReads: AtomicLong = new AtomicLong(0)
-    private val numWrites: AtomicLong = new AtomicLong(0)
-    private val numDeletes: AtomicLong = new AtomicLong(0)
+    private var numReads: AtomicLong = new AtomicLong(0)
+    private var numWrites: AtomicLong = new AtomicLong(0)
+    private var numDeletes: AtomicLong = new AtomicLong(0)
 
     // Tracks total number of comparisons SAVED by cache hits
-    private val cacheHits = new ConcurrentHashMap[CacheName, AtomicLong]()
+    private var cacheHits = new ConcurrentHashMap[CacheName, AtomicLong]()
+    private var totalCacheHits = new AtomicLong(0)
 
     // Tracks the timestamp (in terms of number of reads) at which each cache was created
-    private val cacheAdded = new ConcurrentHashMap[CacheName, Long]()
+    private var cacheAdded = new ConcurrentHashMap[CacheName, Long]()
 
     // Tracks the total number of records per table
-    private val tableCounts = new ConcurrentHashMap[String, AtomicLong]()
+    private var tableCounts = new ConcurrentHashMap[String, AtomicLong]()
+
+    def reset() {
+        numReads = new AtomicLong(0)
+        numWrites = new AtomicLong(0)
+        numDeletes = new AtomicLong(0)
+        cacheHits = new ConcurrentHashMap[CacheName, AtomicLong]()
+        totalCacheHits = new AtomicLong(0)
+        cacheAdded = new ConcurrentHashMap[CacheName, Long]()
+        tableCounts = new ConcurrentHashMap[String, AtomicLong]()
+    }
 
     def addCountToTable(table: String): Long = {
         if (!tableCounts.containsKey(table)) {
@@ -64,6 +75,7 @@ class StatisticsManager {
             cacheHits.put(cacheName, new AtomicLong(0))
         }
         val numEntries: Long = getCountForTable(cacheName.getTable)
+        totalCacheHits.addAndGet(1)
         cacheHits.get(cacheName).addAndGet(numEntries - countInCache)
     }
 

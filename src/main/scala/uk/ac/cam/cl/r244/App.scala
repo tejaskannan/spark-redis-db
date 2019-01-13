@@ -123,6 +123,10 @@ object App {
                             complete(BulkWriteResult(value).toJson.compactPrint)
                         }
                     }
+                } ~
+                path("reset") {
+                    db.cacheManager.flush()
+                    complete("Success")
                 }
             }
 
