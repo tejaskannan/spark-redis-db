@@ -54,7 +54,7 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
                 for (name <- cache.keys) {
                     if (name.getTable() == table && name.getField() == field &&
                         name.getQueryType() == QueryTypes.containsName) {
-                        if (name.getData()(0).contains(substr)) {
+                        if (substr.contains(name.getData()(0))) {
                             return Some(name)
                         }
                     }
@@ -100,11 +100,11 @@ class CacheManager(_sizeLimit: Int, statsManager: StatisticsManager) {
             // Remove the entry with the minimum score
             var minKey: CacheName = null
             var minValue: Double = Double.MaxValue
-            for (key <- cache.keySet()) {
-                val score: Double = getCacheScore(key)
+            for (k <- cache.keySet()) {
+                val score: Double = getCacheScore(k)
                 if (score < minValue) {
                     minValue = score
-                    minKey = key
+                    minKey = k
                 }
             }
 

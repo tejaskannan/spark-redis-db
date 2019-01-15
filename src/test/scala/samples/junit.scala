@@ -424,6 +424,49 @@ class AppTest {
     }
 
     @Test
+    def sparkCountSpillover() {
+        val text = "text"
+        val id0 = "0"
+        val data0 = Map((idField -> id0), (text -> "iphil"))
+        val write0: Boolean = db.write(table, id0, data0)
+        assertTrue(write0)
+
+        val id1 = "100"
+        val data1 = Map((idField -> id1), (text -> "phiphil"))
+        val write1: Boolean = db.write(table, id1, data1)
+        assertTrue(write1)
+
+        val count0: Long = db.countWithContains(table, text, "iph", false)
+        assertEquals(2, count0)
+
+        Thread.sleep(500)
+
+        val count1: Long = db.countWithContains(table, text, "ip", false)
+        assertEquals(2, count1)
+
+        val count2: Long = db.countWithPrefix(table, text, "ph", false)
+        assertEquals(1, count2)
+
+        val count3: Long = db.countWithContains(table, text, "iphi", false)
+        assertEquals(2, count3)
+
+        val cache0Name = cacheFormat.format(table, text, QueryTypes.containsName, "iph")
+        val cache1Name = cacheFormat.format(table, text, QueryTypes.containsName, "ip")
+        val cache2Name = cacheFormat.format(table, text, QueryTypes.prefixName, "ph")
+        val cache3Name = cacheFormat.format(table, text, QueryTypes.containsName, "iphi")
+        assertTrue(redisClient.exists(cache0Name))
+        assertTrue(redisClient.exists(cache1Name))
+        assertTrue(redisClient.exists(cache2Name))
+        assertFalse(redisClient.exists(cache3Name))
+
+        db.delete(table, id0)
+        db.delete(table, id1)
+        db.deleteCache(cache0Name)
+        db.deleteCache(cache1Name)
+        db.deleteCache(cache2Name)
+    }
+
+    @Test
     def sparkCountWithEditDistance() {
         val id0 = "28"
         val data0 = Map((idField -> id0), (firstName -> "tavon"), (lastName -> "austin"))
@@ -590,11 +633,11 @@ class AppTest {
         assertTrue(write1)
 
 
-        assertEquals(db.countWithPrefix(table, firstName, "to"), 2)
+        assertEquals(db.countWithContains(table, firstName, "to", false), 2)
 
         Thread.sleep(1000)
 
-        val cacheName = cacheFormat.format(table, firstName, prefix, "to")
+        val cacheName = cacheFormat.format(table, firstName, QueryTypes.containsName, "to")
 
         val isPresentBefore: Boolean = redisClient.sismember(cacheName, id1)
         assertTrue(isPresentBefore)
@@ -615,19 +658,19 @@ class AppTest {
         val data0 = Map((idField -> id0), (firstName -> "cam"), (lastName -> "newton"), (college -> "auburn"))
         assertTrue(db.write(table, id0, data0))
 
-        assertEquals(1, db.countWithPrefix(table, firstName, "ca"))
+        assertEquals(1, db.countWithContains(table, firstName, "ca", false))
 
         Thread.sleep(1000)
 
         val id1 = "6"
-        val data1 = Map((idField -> id1), (firstName -> "cady"), (lastName -> "kessler"), (college -> "usc"))
+        val data1 = Map((idField -> id1), (firstName -> "cady"), (lastName -> "kessler"), (college -> "uc"))
         assertTrue(db.write(table, id1, data1))
 
-        val prefixCacheName = cacheFormat.format(table, firstName, prefix, "ca")
-        val isPresent0: Boolean = redisClient.sismember(prefixCacheName, id1)
+        val containsCacheName = cacheFormat.format(table, firstName, QueryTypes.containsName, "ca")
+        val isPresent0: Boolean = redisClient.sismember(containsCacheName, id1)
         assertTrue(isPresent0)
 
-        assertEquals(1, db.countWithPrefix(table, college, "u"))
+        assertEquals(1, db.countWithContains(table, college, "uc", false))
 
         Thread.sleep(1000)
 
@@ -635,19 +678,19 @@ class AppTest {
         val data2 = Map((idField -> id2), (firstName -> "josh"), (lastName -> "rosen"), (college -> "ucla"))
         assertTrue(db.write(table, id2, data2))
 
-        val collegeCacheName = cacheFormat.format(table, college, prefix, "u")
+        val collegeCacheName = cacheFormat.format(table, college, QueryTypes.containsName, "uc")
         val isPresent1: Boolean = redisClient.sismember(collegeCacheName, id2)
         assertTrue(isPresent1)
 
         assertTrue(db.write(table, id0, Map((college -> "uf"))))
 
         val isPresent2: Boolean = redisClient.sismember(collegeCacheName, id0)
-        assertTrue(isPresent2)
+        assertFalse(isPresent2)
 
         db.delete(table, id0)
         db.delete(table, id1)
         db.delete(table, id2)     
-        db.deleteCache(prefixCacheName)
+        db.deleteCache(containsCacheName)
         db.deleteCache(collegeCacheName)
     }
 
@@ -661,7 +704,7 @@ class AppTest {
         val data0 = Map((idField -> id0), (firstName -> "peyton"), (lastName -> "manning"), (college -> "tennessee"))
 
         val id1 = "15"
-        val data1 = Map((idField -> id1), (firstName -> "patrick"), (lastName -> "mahomes"), (college -> "texas tech"))
+        val data1 = Map((idField -> id1), (firstName -> "patrick"), (lastName -> "mahomes"), (college -> "tenn tech"))
 
         val id2 = "17"
         val data2 = Map((idField -> id2), (firstName -> "philip"), (lastName -> "rivers"), (college -> "nc state"))
@@ -672,16 +715,16 @@ class AppTest {
 
         Thread.sleep(1000)
 
-        db.countWithPrefix(table, firstName, "p")
-        db.countWithPrefix(table, lastName, "ma")
+        db.countWithContains(table, firstName, "p", false)
+        db.countWithContains(table, lastName, "ma", false)
 
         Thread.sleep(1000)
 
-        db.countWithPrefix(table, firstName, "p")
-        db.countWithPrefix(table, lastName, "ma")
+        db.countWithContains(table, firstName, "p", false)
+        db.countWithContains(table, lastName, "ma", false)
 
-        val cache0Name = new CacheName(table, firstName, prefix, List[String]("p"))
-        val cache1Name = new CacheName(table, lastName, prefix, List[String]("ma"))
+        val cache0Name = new CacheName(table, firstName, QueryTypes.containsName, List[String]("p"))
+        val cache1Name = new CacheName(table, lastName, QueryTypes.containsName, List[String]("ma"))
 
         assertTrue(db.cacheManager.get(cache0Name) != None)
         assertTrue(db.cacheManager.get(cache1Name) != None)
@@ -689,8 +732,8 @@ class AppTest {
         assertTrue(redisClient.exists(cache0Name.toString))
         assertTrue(redisClient.exists(cache1Name.toString))
 
-        db.countWithPrefix(table, college, "te")
-        val cache2Name = new CacheName(table, college, prefix, List[String]("te"))
+        db.countWithContains(table, college, "tenn", false)
+        val cache2Name = new CacheName(table, college, QueryTypes.containsName, List[String]("tenn"))
 
         Thread.sleep(1000)
 

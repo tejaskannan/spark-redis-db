@@ -25,7 +25,7 @@ class RedisDatabase(_host: String, _port: Int) {
     val cacheSize = 64
     val cacheManager = new CacheManager(cacheSize, statsManager)
     val stopwords = new Stopwords()
-    var maxCacheThreshold: Double = 0.6
+    var maxCacheThreshold: Double = 0.8
 
 
     private val containsCacheThreshold: Int = 4
@@ -36,7 +36,6 @@ class RedisDatabase(_host: String, _port: Int) {
     private val tableQueryFormat: String = "%s:*"
     private val t: Int = 10000
     private val timeout: Duration = Duration(t, "millis")
-    private val cacheEnabled = true
 
     val sparkConf = new SparkConf().setMaster("local[4]")
             .setAppName("spark-redis-db")
@@ -295,7 +294,6 @@ class RedisDatabase(_host: String, _port: Int) {
         if (cache == None) {
             var hashRDD = sparkContext.fromRedisHash(tableQueryFormat.format(table))
                                       .filter(entry => entry._1.startsWith(fieldPrefix))
-
             // We don't cache multiword queries because they are a subset
             // of the total results (for single-word queries)
             if (multiWord && queryType != QueryTypes.containsName && queryType != QueryTypes.editDistName) {
@@ -309,7 +307,7 @@ class RedisDatabase(_host: String, _port: Int) {
                     val cacheIds = cacheRDD.map(entry => entry._1.split(":")(1))
                                            .collect().toList
 
-                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                    if (cacheIds.size > 0 && cacheIds.size <= maxCount) {
                         cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
                     }
 
@@ -328,7 +326,7 @@ class RedisDatabase(_host: String, _port: Int) {
                     cacheRDD.persist()
                     val cacheIds = cacheRDD.flatMap(entry => entry._2).collect().toList
 
-                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                    if (cacheIds.size > 0 && cacheIds.size <= maxCount) {
                         cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
                     }
 
@@ -363,20 +361,32 @@ class RedisDatabase(_host: String, _port: Int) {
                 statsManager.addCacheHit(convertedCacheName, indices.size)
 
                 val hashRDD = sparkContext.fromRedisHash(indices)
+                                          .filter(entry => entry._1.startsWith(fieldPrefix))
                 if (multiWord) {
-                    hashRDD.filter(entry => entry._1.startsWith(fieldPrefix))
-                           .filter(entry => filter(entry._2)).count()
-
+                    hashRDD.filter(entry => filter(entry._2)).count()
                 } else {
-                    hashRDD.flatMap(entry => {
-                            val id = entry._1.split(":")(1)
-                            val words = entry._2.split("\\s+").toSet
-                            words.map(word => (word, id))
-                          })
-                         .groupByKey()
-                         .filter(entry => filter(entry._1))
-                         .flatMap(entry => entry._2)
-                         .distinct().count()
+                    if (queryType == QueryTypes.editDistName) {
+                        hashRDD.flatMap(entry => {
+                                val id = entry._1.split(":")(1)
+                                val words = entry._2.split("\\s+").toSet
+                                words.map(word => (word, id))
+                            })
+                            .filter(entry => cacheFilter(entry._1))
+                            .groupByKey()
+                            .filter(entry => filter(entry._1))
+                            .flatMap(entry => entry._2)
+                            .distinct().count()
+                    } else {
+                        hashRDD.flatMap(entry => {
+                                val id = entry._1.split(":")(1)
+                                val words = entry._2.split("\\s+").toSet
+                                words.map(word => (word, id))
+                              })
+                             .groupByKey()
+                             .filter(entry => filter(entry._1))
+                             .flatMap(entry => entry._2)
+                             .distinct().count()
+                    }
                 }
             }
         }
@@ -409,7 +419,7 @@ class RedisDatabase(_host: String, _port: Int) {
                     val cacheIds = cacheRDD.map(entry => entry._1.split(":")(1))
                                            .collect().toList
 
-                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                    if (cacheIds.size > 0 && cacheIds.size <= maxCount) {
                         cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
                     }
 
@@ -428,7 +438,7 @@ class RedisDatabase(_host: String, _port: Int) {
                     cacheRDD.persist()
                     val cacheIds = cacheRDD.flatMap(entry => entry._2).collect().toList
 
-                    if (cacheEnabled && cacheIds.size > 0 && cacheIds.size <= maxCount) {
+                    if (cacheIds.size > 0 && cacheIds.size <= maxCount) {
                         cacheQueue.put(new CacheQueueEntry(cacheIds, cacheName))
                     }
 
@@ -461,7 +471,19 @@ class RedisDatabase(_host: String, _port: Int) {
                                   .map(entry => entry._1.split(":")(1))
                                   .collect().toList
                 } else {
-                    ids = hashRDD.flatMap(entry => {
+                    if (queryType == QueryTypes.editDistName) {
+                        ids = hashRDD.flatMap(entry => {
+                                    val id = entry._1.split(":")(1)
+                                    val words = entry._2.split("\\s+").toSet
+                                    words.map(word => (word, id))
+                                  })
+                                 .filter(entry => cacheFilter(entry._1))
+                                 .groupByKey()
+                                 .filter(entry => filter(entry._1))
+                                 .flatMap(entry => entry._2)
+                                 .distinct().collect().toList
+                    } else {
+                        ids = hashRDD.flatMap(entry => {
                                     val id = entry._1.split(":")(1)
                                     val words = entry._2.split("\\s+").toSet
                                     words.map(word => (word, id))
@@ -470,6 +492,7 @@ class RedisDatabase(_host: String, _port: Int) {
                                  .filter(entry => filter(entry._1))
                                  .flatMap(entry => entry._2)
                                  .distinct().collect().toList
+                    }
                 }
             }
         }
@@ -600,10 +623,11 @@ class RedisDatabase(_host: String, _port: Int) {
     private def containsCacheName(substring: String): String = {
         val tokens: Array[String] = substring.split(" ")
         for (token <- tokens) {
-            if (!stopwords.words.contains(token)) {
-                return token
+            val trimmed = token.trim()
+            if (trimmed.length > 1 && !stopwords.words.contains(trimmed)) {
+                return trimmed
             }
         }
-        return substring
+        return substring.trim()
     }
 }
